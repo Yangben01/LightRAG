@@ -6,7 +6,7 @@
 
 from typing import Optional, List, Dict, Any
 import traceback
-from fastapi import APIRouter, Depends, Query, HTTPException, Request
+from fastapi import APIRouter, Depends, Query, Path, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from lightrag.utils import logger
@@ -55,11 +55,11 @@ Chunk 是文档被切分后的片段，每个 chunk 包含：
 **示例**：
 ```bash
 # 获取所有chunks
-curl -X GET "http://localhost:8020/chunks/list?page=1&page_size=20" \\
+curl -X GET "http://localhost:9621/chunks/list?page=1&page_size=20" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 
 # 获取特定文档的chunks
-curl -X GET "http://localhost:8020/chunks/list?doc_id=doc-123" \\
+curl -X GET "http://localhost:9621/chunks/list?doc_id=doc-123" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 ```
 
@@ -195,7 +195,7 @@ curl -X GET "http://localhost:8020/chunks/list?doc_id=doc-123" \\
 
 **示例**：
 ```bash
-curl -X GET "http://localhost:8020/chunks/chunk-abc123" \\
+curl -X GET "http://localhost:9621/chunks/chunk-abc123" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 ```
         """,
@@ -247,7 +247,7 @@ curl -X GET "http://localhost:8020/chunks/chunk-abc123" \\
     )
     async def get_chunk_detail(
         request: Request,
-        chunk_id: str = Query(..., description="Chunk ID"),
+        chunk_id: str = Path(..., description="Chunk ID"),
     ):
         """
         获取chunk详情
@@ -366,7 +366,7 @@ curl -X GET "http://localhost:8020/chunks/chunk-abc123" \\
 
 **示例**：
 ```bash
-curl -X GET "http://localhost:8020/documents/doc-xyz789/chunks" \\
+curl -X GET "http://localhost:9621/documents/doc-xyz789/chunks" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 ```
 
@@ -407,7 +407,7 @@ curl -X GET "http://localhost:8020/documents/doc-xyz789/chunks" \\
     )
     async def get_document_chunks(
         request: Request,
-        doc_id: str = Query(..., description="文档ID"),
+        doc_id: str = Path(..., description="文档ID"),
     ):
         """
         获取文档的所有chunks

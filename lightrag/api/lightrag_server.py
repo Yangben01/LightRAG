@@ -419,7 +419,7 @@ def create_app(args):
 #### 🏢 多租户支持 (Multi-tenancy)
 通过 `LIGHTRAG-WORKSPACE` 请求头实现数据隔离：
 ```bash
-curl -H "LIGHTRAG-WORKSPACE: tenant_a" http://localhost:8020/entities/list
+curl -H "LIGHTRAG-WORKSPACE: tenant_a" http://localhost:9621/entities/list
 ```
 
 ### 🔗 其他文档

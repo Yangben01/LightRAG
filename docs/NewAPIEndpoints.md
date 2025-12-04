@@ -365,7 +365,7 @@
 import requests
 
 # 配置
-BASE_URL = "http://localhost:8020"
+BASE_URL = "http://localhost:9621"
 API_KEY = "your-api-key"  # 如果启用了API认证
 
 headers = {}
@@ -422,30 +422,30 @@ print(f"Chunk包含 {chunk_detail['entities_count']} 个实体和 {chunk_detail[
 
 ```bash
 # 1. 获取实体列表
-curl -X GET "http://localhost:8020/entities/list?page=1&page_size=10&entity_type=PERSON" \
+curl -X GET "http://localhost:9621/entities/list?page=1&page_size=10&entity_type=PERSON" \
   -H "Authorization: Bearer your-api-key"
 
 # 2. 获取实体详情
-curl -X GET "http://localhost:8020/entities/马斯克" \
+curl -X GET "http://localhost:9621/entities/马斯克" \
   -H "Authorization: Bearer your-api-key"
 
 # 3. 获取关系列表
-curl -X GET "http://localhost:8020/relations/list?keyword=CEO&page=1&page_size=20" \
+curl -X GET "http://localhost:9621/relations/list?keyword=CEO&page=1&page_size=20" \
   -H "Authorization: Bearer your-api-key"
 
 # 4. 获取文档chunks
-curl -X GET "http://localhost:8020/documents/doc-001/chunks" \
+curl -X GET "http://localhost:9621/documents/doc-001/chunks" \
   -H "Authorization: Bearer your-api-key"
 
 # 5. 获取chunk详情
-curl -X GET "http://localhost:8020/chunks/chunk-001" \
+curl -X GET "http://localhost:9621/chunks/chunk-001" \
   -H "Authorization: Bearer your-api-key"
 ```
 
 ### JavaScript 示例
 
 ```javascript
-const BASE_URL = "http://localhost:8020";
+const BASE_URL = "http://localhost:9621";
 const API_KEY = "your-api-key";
 
 const headers = {
@@ -556,8 +556,8 @@ async function getChunkDetail(chunkId) {
 
 启动 LightRAG 服务后，可以通过以下方式访问完整的 API 文档：
 
-- **Swagger UI**: `http://localhost:8020/docs`
-- **ReDoc**: `http://localhost:8020/redoc`
+- **Swagger UI**: `http://localhost:9621/docs`
+- **ReDoc**: `http://localhost:9621/redoc`
 
 这些交互式文档提供了所有接口的详细说明和测试功能。
 

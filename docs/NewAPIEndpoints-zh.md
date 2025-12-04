@@ -113,8 +113,8 @@ uvicorn lightrag.api.lightrag_server:app --reload
 
 打开浏览器访问：
 
-- Swagger UI: http://localhost:8020/docs
-- ReDoc: http://localhost:8020/redoc
+- Swagger UI: http://localhost:9621/docs
+- ReDoc: http://localhost:9621/redoc
 
 你会看到新增的接口分类：
 
@@ -128,7 +128,7 @@ uvicorn lightrag.api.lightrag_server:app --reload
 ```python
 import requests
 
-BASE_URL = "http://localhost:8020"
+BASE_URL = "http://localhost:9621"
 
 # 1. 获取所有实体（分页）
 entities = requests.get(f"{BASE_URL}/entities/list?page=1&page_size=20").json()
@@ -163,22 +163,22 @@ print(f"Chunk包含 {chunk['entities_count']} 个实体")
 
 ```bash
 # 获取实体列表
-curl "http://localhost:8020/entities/list?page=1&page_size=10"
+curl "http://localhost:9621/entities/list?page=1&page_size=10"
 
 # 搜索包含"特斯拉"的实体
-curl "http://localhost:8020/entities/list?search=特斯拉"
+curl "http://localhost:9621/entities/list?search=特斯拉"
 
 # 获取实体详情
-curl "http://localhost:8020/entities/特斯拉"
+curl "http://localhost:9621/entities/特斯拉"
 
 # 获取关系列表
-curl "http://localhost:8020/relations/list?page=1&page_size=20"
+curl "http://localhost:9621/relations/list?page=1&page_size=20"
 
 # 获取文档chunks
-curl "http://localhost:8020/documents/doc-001/chunks"
+curl "http://localhost:9621/documents/doc-001/chunks"
 
 # 获取chunk详情
-curl "http://localhost:8020/chunks/chunk-001"
+curl "http://localhost:9621/chunks/chunk-001"
 ```
 
 ---

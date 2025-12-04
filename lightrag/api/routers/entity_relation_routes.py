@@ -6,7 +6,7 @@
 
 from typing import Optional, List, Dict, Any
 import traceback
-from fastapi import APIRouter, Depends, Query, HTTPException, Request
+from fastapi import APIRouter, Depends, Query, Path, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from lightrag.utils import logger
@@ -58,20 +58,6 @@ def create_entity_relation_routes(rag, api_key: Optional[str] = None):
 - 浏览知识库中的所有实体
 - 按类型查看特定类别的实体（如人物、组织、地点）
 - 搜索特定名称的实体
-
-**示例**：
-```bash
-# 获取第一页实体
-curl -X GET "http://localhost:8020/entities/list?page=1&page_size=20" \\
-  -H "LIGHTRAG-WORKSPACE: my_workspace"
-
-# 筛选人物类型实体
-curl -X GET "http://localhost:8020/entities/list?entity_type=PERSON" \\
-  -H "LIGHTRAG-WORKSPACE: my_workspace"
-
-# 搜索包含"特斯拉"的实体
-curl -X GET "http://localhost:8020/entities/list?search=特斯拉" \\
-  -H "LIGHTRAG-WORKSPACE: my_workspace"
 ```
         """,
         responses={
@@ -206,7 +192,7 @@ curl -X GET "http://localhost:8020/entities/list?search=特斯拉" \\
 
 **示例**：
 ```bash
-curl -X GET "http://localhost:8020/entities/特斯拉" \\
+curl -X GET "http://localhost:9621/entities/特斯拉" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 ```
         """,
@@ -246,7 +232,7 @@ curl -X GET "http://localhost:8020/entities/特斯拉" \\
         tags=["实体管理 / Entity Management"]
     )
     async def get_entity_detail(
-        entity_name: str = Query(..., description="实体名称"),
+        entity_name: str = Path(..., description="实体名称"),
     ):
         """
         获取实体详情
@@ -343,15 +329,15 @@ curl -X GET "http://localhost:8020/entities/特斯拉" \\
 **示例**：
 ```bash
 # 获取所有关系
-curl -X GET "http://localhost:8020/relations/list?page=1&page_size=20" \\
+curl -X GET "http://localhost:9621/relations/list?page=1&page_size=20" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 
 # 筛选特定实体的关系
-curl -X GET "http://localhost:8020/relations/list?entity_name=特斯拉" \\
+curl -X GET "http://localhost:9621/relations/list?entity_name=特斯拉" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 
 # 按关键词搜索关系
-curl -X GET "http://localhost:8020/relations/list?keyword=CEO" \\
+curl -X GET "http://localhost:9621/relations/list?keyword=CEO" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 ```
         """,
@@ -481,7 +467,7 @@ curl -X GET "http://localhost:8020/relations/list?keyword=CEO" \\
 
 **示例**：
 ```bash
-curl -X GET "http://localhost:8020/entities/特斯拉/relations" \\
+curl -X GET "http://localhost:9621/entities/特斯拉/relations" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 ```
         """,
@@ -514,7 +500,7 @@ curl -X GET "http://localhost:8020/entities/特斯拉/relations" \\
         tags=["关系管理 / Relation Management"]
     )
     async def get_entity_relations(
-        entity_name: str = Query(..., description="实体名称"),
+        entity_name: str = Path(..., description="实体名称"),
     ):
         """
         获取实体的所有关系

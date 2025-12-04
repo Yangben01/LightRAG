@@ -101,7 +101,7 @@ uvicorn lightrag.api.lightrag_server:app --reload
 
 ```bash
 curl -H "LIGHTRAG-WORKSPACE: tenant_a" \
-     http://localhost:8020/entities/list
+     http://localhost:9621/entities/list
 ```
 
 ---
@@ -115,14 +115,14 @@ curl -H "LIGHTRAG-WORKSPACE: tenant_a" \
 ```bash
 # 租户A的实体列表
 curl -H "LIGHTRAG-WORKSPACE: tenant_a" \
-     "http://localhost:8020/entities/list?page=1&page_size=20"
+     "http://localhost:9621/entities/list?page=1&page_size=20"
 
 # 租户B的实体列表
 curl -H "LIGHTRAG-WORKSPACE: tenant_b" \
-     "http://localhost:8020/entities/list?page=1&page_size=20"
+     "http://localhost:9621/entities/list?page=1&page_size=20"
 
 # 使用默认workspace（不传header）
-curl "http://localhost:8020/entities/list?page=1&page_size=20"
+curl "http://localhost:9621/entities/list?page=1&page_size=20"
 ```
 
 ### 2. 查询接口
@@ -132,13 +132,13 @@ curl "http://localhost:8020/entities/list?page=1&page_size=20"
 curl -H "LIGHTRAG-WORKSPACE: tenant_a" \
      -H "Content-Type: application/json" \
      -d '{"query": "什么是特斯拉？", "mode": "local"}' \
-     http://localhost:8020/query
+     http://localhost:9621/query
 
 # 租户B的查询
 curl -H "LIGHTRAG-WORKSPACE: tenant_b" \
      -H "Content-Type: application/json" \
      -d '{"query": "什么是特斯拉？", "mode": "local"}' \
-     http://localhost:8020/query
+     http://localhost:9621/query
 ```
 
 ### 3. 文档管理接口
@@ -147,12 +147,12 @@ curl -H "LIGHTRAG-WORKSPACE: tenant_b" \
 # 租户A上传文档
 curl -H "LIGHTRAG-WORKSPACE: tenant_a" \
      -F "file=@document.txt" \
-     http://localhost:8020/documents/upload
+     http://localhost:9621/documents/upload
 
 # 租户B上传文档
 curl -H "LIGHTRAG-WORKSPACE: tenant_b" \
      -F "file=@document.txt" \
-     http://localhost:8020/documents/upload
+     http://localhost:9621/documents/upload
 ```
 
 ---
@@ -200,14 +200,14 @@ class LightRAGClient:
 # 使用示例
 # 租户A的客户端
 tenant_a_client = LightRAGClient(
-    base_url="http://localhost:8020",
+    base_url="http://localhost:9621",
     workspace="tenant_a",
     api_key="your-api-key"
 )
 
 # 租户B的客户端
 tenant_b_client = LightRAGClient(
-    base_url="http://localhost:8020",
+    base_url="http://localhost:9621",
     workspace="tenant_b",
     api_key="your-api-key"
 )
@@ -268,13 +268,13 @@ export class LightRAGClient {
 
 // 使用示例
 const tenantAClient = new LightRAGClient(
-  "http://localhost:8020",
+  "http://localhost:9621",
   "tenant_a",
   "your-api-key"
 );
 
 const tenantBClient = new LightRAGClient(
-  "http://localhost:8020",
+  "http://localhost:9621",
   "tenant_b",
   "your-api-key"
 );
@@ -310,13 +310,13 @@ const TenantContext = createContext<TenantContextType | null>(null);
 export function TenantProvider({ children }: { children: React.ReactNode }) {
   const [workspace, setWorkspace] = useState("default");
   const [client, setClient] = useState(
-    () => new LightRAGClient("http://localhost:8020", workspace)
+    () => new LightRAGClient("http://localhost:9621", workspace)
   );
 
   // 切换租户时更新客户端
   const handleSetWorkspace = (newWorkspace: string) => {
     setWorkspace(newWorkspace);
-    setClient(new LightRAGClient("http://localhost:8020", newWorkspace));
+    setClient(new LightRAGClient("http://localhost:9621", newWorkspace));
   };
 
   return (
@@ -477,7 +477,7 @@ def validate_workspace_name(workspace: str) -> str:
 
 import requests
 
-BASE_URL = "http://localhost:8020"
+BASE_URL = "http://localhost:9621"
 
 def test_workspace_isolation():
     """测试workspace数据隔离"""
