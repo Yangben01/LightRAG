@@ -1,5 +1,5 @@
 """
-Configs for the LightRAG API.
+LightRAG API的配置。
 """
 
 import os
@@ -43,9 +43,9 @@ from lightrag.constants import (
     DEFAULT_ENTITY_TYPES,
 )
 
-# use the .env that is inside the current folder
-# allows to use different .env file for each lightrag instance
-# the OS environment variables take precedence over the .env file
+# 使用当前文件夹中的.env文件
+# 允许为每个lightrag实例使用不同的.env文件
+# 操作系统环境变量优先于.env文件
 load_dotenv(dotenv_path=".env", override=False)
 
 
@@ -71,66 +71,66 @@ def get_default_host(binding_type: str) -> str:
     }
     return default_hosts.get(
         binding_type, os.getenv("LLM_BINDING_HOST", "http://localhost:11434")
-    )  # fallback to ollama if unknown
+    )  # 如果未知则回退到ollama
 
 
 def parse_args() -> argparse.Namespace:
     """
-    Parse command line arguments with environment variable fallback
+    解析命令行参数，支持环境变量回退
 
-    Args:
-        is_uvicorn_mode: Whether running under uvicorn mode
+    参数:
+        is_uvicorn_mode: 是否在uvicorn模式下运行
 
-    Returns:
-        argparse.Namespace: Parsed arguments
+    返回:
+        argparse.Namespace: 已解析的参数
     """
 
-    parser = argparse.ArgumentParser(description="LightRAG API Server")
+    parser = argparse.ArgumentParser(description="LightRAG API服务器")
 
-    # Server configuration
+    # 服务器配置
     parser.add_argument(
         "--host",
         default=get_env_value("HOST", "0.0.0.0"),
-        help="Server host (default: from env or 0.0.0.0)",
+        help="服务器主机 (默认: 从环境变量或0.0.0.0获取)",
     )
     parser.add_argument(
         "--port",
         type=int,
         default=get_env_value("PORT", 9621, int),
-        help="Server port (default: from env or 9621)",
+        help="服务器端口 (默认: 从环境变量或9621获取)",
     )
 
-    # Directory configuration
+    # 目录配置
     parser.add_argument(
         "--working-dir",
         default=get_env_value("WORKING_DIR", "./rag_storage"),
-        help="Working directory for RAG storage (default: from env or ./rag_storage)",
+        help="RAG存储的工作目录 (默认: 从环境变量或./rag_storage获取)",
     )
     parser.add_argument(
         "--input-dir",
         default=get_env_value("INPUT_DIR", "./inputs"),
-        help="Directory containing input documents (default: from env or ./inputs)",
+        help="包含输入文档的目录 (默认: 从环境变量或./inputs获取)",
     )
 
     parser.add_argument(
         "--timeout",
         default=get_env_value("TIMEOUT", DEFAULT_TIMEOUT, int, special_none=True),
         type=int,
-        help="Timeout in seconds (useful when using slow AI). Use None for infinite timeout",
+        help="超时时间（秒）（当使用慢速AI时有用）。使用None表示无限超时",
     )
 
-    # RAG configuration
+    # RAG配置
     parser.add_argument(
         "--max-async",
         type=int,
         default=get_env_value("MAX_ASYNC", DEFAULT_MAX_ASYNC, int),
-        help=f"Maximum async operations (default: from env or {DEFAULT_MAX_ASYNC})",
+        help=f"最大异步操作数 (默认: 从环境变量或{DEFAULT_MAX_ASYNC}获取)",
     )
     parser.add_argument(
         "--summary-max-tokens",
         type=int,
         default=get_env_value("SUMMARY_MAX_TOKENS", DEFAULT_SUMMARY_MAX_TOKENS, int),
-        help=f"Maximum token size for entity/relation summary(default: from env or {DEFAULT_SUMMARY_MAX_TOKENS})",
+        help=f"实体/关系摘要的最大令牌大小(默认: 从环境变量或{DEFAULT_SUMMARY_MAX_TOKENS}获取)",
     )
     parser.add_argument(
         "--summary-context-size",
@@ -138,7 +138,7 @@ def parse_args() -> argparse.Namespace:
         default=get_env_value(
             "SUMMARY_CONTEXT_SIZE", DEFAULT_SUMMARY_CONTEXT_SIZE, int
         ),
-        help=f"LLM Summary Context size (default: from env or {DEFAULT_SUMMARY_CONTEXT_SIZE})",
+        help=f"LLM摘要上下文大小 (默认: 从环境变量或{DEFAULT_SUMMARY_CONTEXT_SIZE}获取)",
     )
     parser.add_argument(
         "--summary-length-recommended",
@@ -146,80 +146,80 @@ def parse_args() -> argparse.Namespace:
         default=get_env_value(
             "SUMMARY_LENGTH_RECOMMENDED", DEFAULT_SUMMARY_LENGTH_RECOMMENDED, int
         ),
-        help=f"LLM Summary Context size (default: from env or {DEFAULT_SUMMARY_LENGTH_RECOMMENDED})",
+        help=f"LLM摘要推荐长度 (默认: 从环境变量或{DEFAULT_SUMMARY_LENGTH_RECOMMENDED}获取)",
     )
 
-    # Logging configuration
+    # 日志配置
     parser.add_argument(
         "--log-level",
         default=get_env_value("LOG_LEVEL", "INFO"),
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Logging level (default: from env or INFO)",
+        help="日志级别 (默认: 从环境变量或INFO获取)",
     )
     parser.add_argument(
         "--verbose",
         action="store_true",
         default=get_env_value("VERBOSE", False, bool),
-        help="Enable verbose debug output(only valid for DEBUG log-level)",
+        help="启用详细调试输出(仅对DEBUG日志级别有效)",
     )
 
     parser.add_argument(
         "--key",
         type=str,
         default=get_env_value("LIGHTRAG_API_KEY", None),
-        help="API key for authentication. This protects lightrag server against unauthorized access",
+        help="用于认证的API密钥。这可以保护lightrag服务器免受未经授权的访问",
     )
 
-    # Optional https parameters
+    # 可选的https参数
     parser.add_argument(
         "--ssl",
         action="store_true",
         default=get_env_value("SSL", False, bool),
-        help="Enable HTTPS (default: from env or False)",
+        help="启用HTTPS (默认: 从环境变量或False获取)",
     )
     parser.add_argument(
         "--ssl-certfile",
         default=get_env_value("SSL_CERTFILE", None),
-        help="Path to SSL certificate file (required if --ssl is enabled)",
+        help="SSL证书文件的路径 (如果启用--ssl则必需)",
     )
     parser.add_argument(
         "--ssl-keyfile",
         default=get_env_value("SSL_KEYFILE", None),
-        help="Path to SSL private key file (required if --ssl is enabled)",
+        help="SSL私钥文件的路径 (如果启用--ssl则必需)",
     )
 
-    # Ollama model configuration
+    # Ollama模型配置
     parser.add_argument(
         "--simulated-model-name",
         type=str,
         default=get_env_value("OLLAMA_EMULATING_MODEL_NAME", DEFAULT_OLLAMA_MODEL_NAME),
-        help="Name for the simulated Ollama model (default: from env or lightrag)",
+        help="模拟的Ollama模型名称 (默认: 从环境变量或lightrag获取)",
     )
 
     parser.add_argument(
         "--simulated-model-tag",
         type=str,
         default=get_env_value("OLLAMA_EMULATING_MODEL_TAG", DEFAULT_OLLAMA_MODEL_TAG),
-        help="Tag for the simulated Ollama model (default: from env or latest)",
+        help="模拟的Ollama模型标签 (默认: 从环境变量或latest获取)",
     )
 
-    # Namespace
+    # 命名空间
     parser.add_argument(
         "--workspace",
         type=str,
         default=get_env_value("WORKSPACE", ""),
-        help="Default workspace for all storage",
+        help="所有存储的默认工作区",
     )
 
-    # Server workers configuration
+    # 服务器工作进程配置
     parser.add_argument(
         "--workers",
         type=int,
         default=get_env_value("WORKERS", DEFAULT_WOKERS, int),
-        help="Number of worker processes (default: from env or 1)",
+        help="工作进程数 (默认: 从环境变量或1获取)",
     )
 
-    # LLM and embedding bindings
+    # LLM和嵌入绑定
     parser.add_argument(
         "--llm-binding",
         type=str,
@@ -233,7 +233,7 @@ def parse_args() -> argparse.Namespace:
             "aws_bedrock",
             "gemini",
         ],
-        help="LLM binding type (default: from env or ollama)",
+        help="LLM绑定类型 (默认: 从环境变量或ollama获取)",
     )
     parser.add_argument(
         "--embedding-binding",
@@ -248,27 +248,27 @@ def parse_args() -> argparse.Namespace:
             "jina",
             "gemini",
         ],
-        help="Embedding binding type (default: from env or ollama)",
+        help="嵌入绑定类型 (默认: 从环境变量或ollama获取)",
     )
     parser.add_argument(
         "--rerank-binding",
         type=str,
         default=get_env_value("RERANK_BINDING", DEFAULT_RERANK_BINDING),
         choices=["null", "cohere", "jina", "aliyun"],
-        help=f"Rerank binding type (default: from env or {DEFAULT_RERANK_BINDING})",
+        help=f"重排序绑定类型 (默认: 从环境变量或{DEFAULT_RERANK_BINDING}获取)",
     )
 
-    # Document loading engine configuration
+    # 文档加载引擎配置
     parser.add_argument(
         "--docling",
         action="store_true",
         default=False,
-        help="Enable DOCLING document loading engine (default: from env or DEFAULT)",
+        help="启用DOCLING文档加载引擎 (默认: 从环境变量或DEFAULT获取)",
     )
 
-    # Conditionally add binding options defined in binding_options module
-    # This will add command line arguments for all binding options (e.g., --ollama-embedding-num_ctx)
-    # and corresponding environment variables (e.g., OLLAMA_EMBEDDING_NUM_CTX)
+    # 条件性添加在binding_options模块中定义的绑定选项
+    # 这将为所有绑定选项添加命令行参数（例如，--ollama-embedding-num_ctx）
+    # 和相应的环境变量（例如，OLLAMA_EMBEDDING_NUM_CTX）
     if "--llm-binding" in sys.argv:
         try:
             idx = sys.argv.index("--llm-binding")
@@ -296,7 +296,7 @@ def parse_args() -> argparse.Namespace:
         elif env_embedding_binding == "gemini":
             GeminiEmbeddingOptions.add_args(parser)
 
-    # Add OpenAI LLM options when llm-binding is openai or azure_openai
+    # 当llm-binding为openai或azure_openai时添加OpenAI LLM选项
     if "--llm-binding" in sys.argv:
         try:
             idx = sys.argv.index("--llm-binding")
@@ -322,11 +322,11 @@ def parse_args() -> argparse.Namespace:
 
     args = parser.parse_args()
 
-    # convert relative path to absolute path
+    # 将相对路径转换为绝对路径
     args.working_dir = os.path.abspath(args.working_dir)
     args.input_dir = os.path.abspath(args.input_dir)
 
-    # Inject storage configuration from environment variables
+    # 从环境变量注入存储配置
     args.kv_storage = get_env_value(
         "LIGHTRAG_KV_STORAGE", DefaultRAGStorageConfig.KV_STORAGE
     )
@@ -340,13 +340,13 @@ def parse_args() -> argparse.Namespace:
         "LIGHTRAG_VECTOR_STORAGE", DefaultRAGStorageConfig.VECTOR_STORAGE
     )
 
-    # Get MAX_PARALLEL_INSERT from environment
+    # 从环境获取MAX_PARALLEL_INSERT
     args.max_parallel_insert = get_env_value("MAX_PARALLEL_INSERT", 2, int)
 
-    # Get MAX_GRAPH_NODES from environment
+    # 从环境获取MAX_GRAPH_NODES
     args.max_graph_nodes = get_env_value("MAX_GRAPH_NODES", 1000, int)
 
-    # Handle openai-ollama special case
+    # 处理openai-ollama特殊情况
     if args.llm_binding == "openai-ollama":
         args.llm_binding = "openai"
         args.embedding_binding = "ollama"
@@ -363,27 +363,27 @@ def parse_args() -> argparse.Namespace:
     args.llm_binding_api_key = get_env_value("LLM_BINDING_API_KEY", None)
     args.embedding_binding_api_key = get_env_value("EMBEDDING_BINDING_API_KEY", "")
 
-    # Inject model configuration
+    # 注入模型配置
     args.llm_model = get_env_value("LLM_MODEL", "mistral-nemo:latest")
-    # EMBEDDING_MODEL defaults to None - each binding will use its own default model
-    # e.g., OpenAI uses "text-embedding-3-small", Jina uses "jina-embeddings-v4"
+    # EMBEDDING_MODEL默认为None - 每个绑定将使用自己的默认模型
+    # 例如，OpenAI使用"text-embedding-3-small"，Jina使用"jina-embeddings-v4"
     args.embedding_model = get_env_value("EMBEDDING_MODEL", None, special_none=True)
-    # EMBEDDING_DIM defaults to None - each binding will use its own default dimension
-    # Value is inherited from provider defaults via wrap_embedding_func_with_attrs decorator
+    # EMBEDDING_DIM默认为None - 每个绑定将使用自己的默认维度
+    # 通过wrap_embedding_func_with_attrs装饰器继承自提供者的默认值
     args.embedding_dim = get_env_value("EMBEDDING_DIM", None, int, special_none=True)
     args.embedding_send_dim = get_env_value("EMBEDDING_SEND_DIM", False, bool)
 
-    # Inject chunk configuration
+    # 注入块配置
     args.chunk_size = get_env_value("CHUNK_SIZE", 1200, int)
     args.chunk_overlap_size = get_env_value("CHUNK_OVERLAP_SIZE", 100, int)
 
-    # Inject LLM cache configuration
+    # 注入LLM缓存配置
     args.enable_llm_cache_for_extract = get_env_value(
         "ENABLE_LLM_CACHE_FOR_EXTRACT", True, bool
     )
     args.enable_llm_cache = get_env_value("ENABLE_LLM_CACHE", True, bool)
 
-    # Set document_loading_engine from --docling flag
+    # 设置document_loading_engine从--docling标志
     if args.docling:
         args.document_loading_engine = "DOCLING"
     else:
@@ -391,34 +391,34 @@ def parse_args() -> argparse.Namespace:
             "DOCUMENT_LOADING_ENGINE", "DEFAULT"
         )
 
-    # PDF decryption password
+    # PDF解密密码
     args.pdf_decrypt_password = get_env_value("PDF_DECRYPT_PASSWORD", None)
 
-    # Add environment variables that were previously read directly
+    # 添加之前直接读取的环境变量
     args.cors_origins = get_env_value("CORS_ORIGINS", "*")
     args.summary_language = get_env_value("SUMMARY_LANGUAGE", DEFAULT_SUMMARY_LANGUAGE)
     args.entity_types = get_env_value("ENTITY_TYPES", DEFAULT_ENTITY_TYPES, list)
     args.whitelist_paths = get_env_value("WHITELIST_PATHS", "/health,/api/*")
 
-    # For JWT Auth
+    # 用于JWT认证
     args.auth_accounts = get_env_value("AUTH_ACCOUNTS", "")
     args.token_secret = get_env_value("TOKEN_SECRET", "lightrag-jwt-default-secret")
     args.token_expire_hours = get_env_value("TOKEN_EXPIRE_HOURS", 48, int)
     args.guest_token_expire_hours = get_env_value("GUEST_TOKEN_EXPIRE_HOURS", 24, int)
     args.jwt_algorithm = get_env_value("JWT_ALGORITHM", "HS256")
 
-    # Rerank model configuration
+    # 重排序模型配置
     args.rerank_model = get_env_value("RERANK_MODEL", None)
     args.rerank_binding_host = get_env_value("RERANK_BINDING_HOST", None)
     args.rerank_binding_api_key = get_env_value("RERANK_BINDING_API_KEY", None)
-    # Note: rerank_binding is already set by argparse, no need to override from env
+    # 注意：rerank_binding已经由argparse设置，无需从环境覆盖
 
-    # Min rerank score configuration
+    # 最小重排序分数配置
     args.min_rerank_score = get_env_value(
         "MIN_RERANK_SCORE", DEFAULT_MIN_RERANK_SCORE, float
     )
 
-    # Query configuration
+    # 查询配置
     args.history_turns = get_env_value("HISTORY_TURNS", DEFAULT_HISTORY_TURNS, int)
     args.top_k = get_env_value("TOP_K", DEFAULT_TOP_K, int)
     args.chunk_top_k = get_env_value("CHUNK_TOP_K", DEFAULT_CHUNK_TOP_K, int)
@@ -438,7 +438,7 @@ def parse_args() -> argparse.Namespace:
         "RELATED_CHUNK_NUMBER", DEFAULT_RELATED_CHUNK_NUMBER, int
     )
 
-    # Add missing environment variables for health endpoint
+    # 为健康端点添加缺失的环境变量
     args.force_llm_summary_on_merge = get_env_value(
         "FORCE_LLM_SUMMARY_ON_MERGE", DEFAULT_FORCE_LLM_SUMMARY_ON_MERGE, int
     )
@@ -449,7 +449,7 @@ def parse_args() -> argparse.Namespace:
         "EMBEDDING_BATCH_NUM", DEFAULT_EMBEDDING_BATCH_NUM, int
     )
 
-    # Embedding token limit configuration
+    # 嵌入令牌限制配置
     args.embedding_token_limit = get_env_value(
         "EMBEDDING_TOKEN_LIMIT", None, int, special_none=True
     )
@@ -461,45 +461,44 @@ def parse_args() -> argparse.Namespace:
 
 
 def update_uvicorn_mode_config():
-    # If in uvicorn mode and workers > 1, force it to 1 and log warning
+    # 如果在uvicorn模式下且workers > 1，则强制设置为1并记录警告
     if global_args.workers > 1:
         original_workers = global_args.workers
         global_args.workers = 1
-        # Log warning directly here
+        # 直接在此处记录警告
         logging.warning(
             f">> Forcing workers=1 in uvicorn mode(Ignoring workers={original_workers})"
         )
 
 
-# Global configuration with lazy initialization
+# 全局配置，延迟初始化
 _global_args = None
 _initialized = False
 
 
 def initialize_config(args=None, force=False):
-    """Initialize global configuration
+    """初始化全局配置
 
-    This function allows explicit initialization of the configuration,
-    which is useful for programmatic usage, testing, or embedding LightRAG
-    in other applications.
+    该函数允许显式初始化配置，
+    这对于程序化使用、测试或在其他应用程序中嵌入LightRAG很有用。
 
-    Args:
-        args: Pre-parsed argparse.Namespace or None to parse from sys.argv
-        force: Force re-initialization even if already initialized
+    参数:
+        args: 已解析的argparse.Namespace或None以从sys.argv解析
+        force: 即使已初始化也强制重新初始化
 
-    Returns:
-        argparse.Namespace: The configured arguments
+    返回:
+        argparse.Namespace: 配置的参数
 
-    Example:
-        # Use parsed command line arguments (default)
+    示例:
+        # 使用命令行参数（默认）
         initialize_config()
 
-        # Use custom configuration programmatically
+        # 使用自定义配置进行程序化设置
         custom_args = argparse.Namespace(
             host='localhost',
             port=8080,
             working_dir='./custom_rag',
-            # ... other config
+            # ... 其他配置
         )
         initialize_config(custom_args)
     """
@@ -514,10 +513,10 @@ def initialize_config(args=None, force=False):
 
 
 def get_config():
-    """Get global configuration, auto-initializing if needed
+    """获取全局配置，如果需要则自动初始化
 
-    Returns:
-        argparse.Namespace: The configured arguments
+    返回:
+        argparse.Namespace: 配置的参数
     """
     if not _initialized:
         initialize_config()
@@ -525,10 +524,10 @@ def get_config():
 
 
 class _GlobalArgsProxy:
-    """Proxy object that auto-initializes configuration on first access
+    """代理对象，首次访问时自动初始化配置
 
-    This maintains backward compatibility with existing code while
-    allowing programmatic control over initialization timing.
+    这保持了与现有代码的向后兼容性，
+    同时允许对初始化时间进行程序化控制。
     """
 
     def __getattr__(self, name):
@@ -547,7 +546,7 @@ class _GlobalArgsProxy:
         return repr(_global_args)
 
 
-# Create proxy instance for backward compatibility
-# Existing code like `from config import global_args` continues to work
-# The proxy will auto-initialize on first attribute access
+# 创建代理实例以保持向后兼容性
+# 现有代码如`from config import global_args`继续正常工作
+# 代理将在首次属性访问时自动初始化
 global_args = _GlobalArgsProxy()

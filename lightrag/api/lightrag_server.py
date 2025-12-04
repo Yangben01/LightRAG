@@ -1251,12 +1251,12 @@ curl -H "LIGHTRAG-WORKSPACE: tenant_a" http://localhost:9621/entities/list
     @app.get(
         "/health",
         dependencies=[Depends(combined_auth)],
-        summary="Get system health and configuration status",
-        description="Returns comprehensive system status including WebUI availability, configuration, and operational metrics",
-        response_description="System health status with configuration details",
+        summary="获取系统健康和配置状态",
+        description="返回全面的系统状态，包括WebUI可用性、配置和运行指标",
+        response_description="包含配置详情的系统健康状态",
         responses={
             200: {
-                "description": "Successful response with system status",
+                "description": "成功返回系统状态",
                 "content": {
                     "application/json": {
                         "example": {

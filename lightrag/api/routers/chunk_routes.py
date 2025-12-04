@@ -63,7 +63,7 @@ curl -X GET "http://localhost:8020/chunks/list?doc_id=doc-123" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 ```
 
-**注意**：目前仅支持 JSON 存储后端。
+**支持的存储后端**：JSON、MongoDB、PostgreSQL、Redis。
         """,
         responses={
             200: {
@@ -118,31 +118,86 @@ curl -X GET "http://localhost:8020/chunks/list?doc_id=doc-123" \\
             - chunk_order_index: chunk顺序索引
         """
         try:
-            # 从text_chunks存储中获取所有chunks
-            # text_chunks是BaseKVStorage，我们需要获取所有数据
-            # 由于BaseKVStorage没有get_all方法，我们需要使用内部存储方法
-
-            # 对于JSON存储，可以直接访问内部数据
-            if hasattr(rag.text_chunks, "_data"):
+            all_chunks = []
+            
+            # 检查存储后端类型并使用相应方法获取数据
+            storage_class_name = rag.text_chunks.__class__.__name__
+            
+            if hasattr(rag.text_chunks, "_data") and isinstance(rag.text_chunks._data, dict):
+                # JSON 存储：直接访问内部字典
                 all_chunks_dict = rag.text_chunks._data
+                for chunk_id, chunk_data in all_chunks_dict.items():
+                    chunk_info = {
+                        "chunk_id": chunk_id,
+                        "content": chunk_data.get("content", ""),
+                        "tokens": chunk_data.get("tokens", 0),
+                        "full_doc_id": chunk_data.get("full_doc_id", ""),
+                        "chunk_order_index": chunk_data.get("chunk_order_index", 0),
+                    }
+                    all_chunks.append(chunk_info)
+                    
+            elif storage_class_name == "MongoKVStorage":
+                # MongoDB 存储：使用 find() 查询所有文档
+                cursor = rag.text_chunks._data.find({})
+                async for chunk_data in cursor:
+                    chunk_info = {
+                        "chunk_id": chunk_data.get("_id", ""),
+                        "content": chunk_data.get("content", ""),
+                        "tokens": chunk_data.get("tokens", 0),
+                        "full_doc_id": chunk_data.get("full_doc_id", ""),
+                        "chunk_order_index": chunk_data.get("chunk_order_index", 0),
+                    }
+                    all_chunks.append(chunk_info)
+                    
+            elif storage_class_name == "PGKVStorage":
+                # PostgreSQL 存储：使用 SQL 查询所有记录
+                sql = """
+                    SELECT id, content, tokens, full_doc_id, chunk_order_index
+                    FROM LIGHTRAG_DOC_CHUNKS
+                    WHERE workspace = $1
+                """
+                results = await rag.text_chunks.db.query(
+                    sql, [rag.text_chunks.workspace], multirows=True
+                )
+                if results:
+                    for row in results:
+                        chunk_info = {
+                            "chunk_id": row.get("id", ""),
+                            "content": row.get("content", ""),
+                            "tokens": row.get("tokens", 0),
+                            "full_doc_id": row.get("full_doc_id", ""),
+                            "chunk_order_index": row.get("chunk_order_index", 0),
+                        }
+                        all_chunks.append(chunk_info)
+                        
+            elif storage_class_name == "RedisKVStorage":
+                # Redis 存储：使用 scan 遍历所有键
+                pattern = f"{rag.text_chunks.namespace}:*"
+                cursor = 0
+                while True:
+                    cursor, keys = await rag.text_chunks._data.scan(
+                        cursor, match=pattern, count=100
+                    )
+                    for key in keys:
+                        chunk_data = await rag.text_chunks._data.hgetall(key)
+                        if chunk_data:
+                            # Redis 返回的是字节，需要解码
+                            chunk_info = {
+                                "chunk_id": key.decode() if isinstance(key, bytes) else key,
+                                "content": chunk_data.get(b"content", b"").decode() if isinstance(chunk_data.get(b"content"), bytes) else chunk_data.get("content", ""),
+                                "tokens": int(chunk_data.get(b"tokens", 0)) if chunk_data.get(b"tokens") else 0,
+                                "full_doc_id": chunk_data.get(b"full_doc_id", b"").decode() if isinstance(chunk_data.get(b"full_doc_id"), bytes) else chunk_data.get("full_doc_id", ""),
+                                "chunk_order_index": int(chunk_data.get(b"chunk_order_index", 0)) if chunk_data.get(b"chunk_order_index") else 0,
+                            }
+                            all_chunks.append(chunk_info)
+                    if cursor == 0:
+                        break
             else:
-                # 如果没有_data属性，抛出错误
+                # 不支持的存储后端
                 raise HTTPException(
                     status_code=501,
-                    detail="当前存储后端不支持列出所有chunks，请使用JSON存储",
+                    detail=f"当前存储后端 '{storage_class_name}' 不支持列出所有chunks。支持的后端：JsonKVStorage、MongoKVStorage、PGKVStorage、RedisKVStorage",
                 )
-
-            # 转换为列表
-            all_chunks = []
-            for chunk_id, chunk_data in all_chunks_dict.items():
-                chunk_info = {
-                    "chunk_id": chunk_id,
-                    "content": chunk_data.get("content", ""),
-                    "tokens": chunk_data.get("tokens", 0),
-                    "full_doc_id": chunk_data.get("full_doc_id", ""),
-                    "chunk_order_index": chunk_data.get("chunk_order_index", 0),
-                }
-                all_chunks.append(chunk_info)
 
             # 按文档ID筛选
             if doc_id:
@@ -278,17 +333,42 @@ curl -X GET "http://localhost:8020/chunks/chunk-abc123" \\
             if not chunk_data:
                 raise HTTPException(status_code=404, detail=f"Chunk '{chunk_id}' 不存在")
 
-            # 获取与chunk关联的实体
+            # 获取与chunk关联的实体和关系
             entities = []
             relations = []
+            
+            storage_class_name = rag.entity_chunks.__class__.__name__
 
             # 从entity_chunks存储中查找包含此chunk_id的实体
-            if hasattr(rag.entity_chunks, "_data"):
+            if hasattr(rag.entity_chunks, "_data") and isinstance(rag.entity_chunks._data, dict):
+                # JSON 存储：直接遍历字典
                 entity_chunks_dict = rag.entity_chunks._data
-
                 for entity_name, chunk_list in entity_chunks_dict.items():
                     if chunk_id in chunk_list:
-                        # 获取实体详情
+                        entity_data = await rag.full_entities.get_by_id(entity_name)
+                        if entity_data:
+                            entities.append(
+                                {
+                                    "entity_name": entity_name,
+                                    "entity_type": entity_data.get(
+                                        "entity_type", "UNKNOWN"
+                                    ),
+                                    "description": entity_data.get("description", ""),
+                                }
+                            )
+                            
+            elif storage_class_name in ["MongoKVStorage", "PGKVStorage", "RedisKVStorage"]:
+                # 数据库存储：查询关联实体（性能警告）
+                # 注意：这个操作在大数据集上可能很慢，因为需要遍历所有实体
+                logger.warning(
+                    f"使用数据库存储 '{storage_class_name}' 查询 chunk 关联实体可能较慢，建议使用 JSON 存储以获得更好性能"
+                )
+                
+                # 从 chunk 数据中获取可能的实体信息（如果有的话）
+                # 某些实现可能在 chunk 数据中存储了实体引用
+                entity_refs = chunk_data.get("entities", [])
+                if entity_refs:
+                    for entity_name in entity_refs:
                         entity_data = await rag.full_entities.get_by_id(entity_name)
                         if entity_data:
                             entities.append(
@@ -302,21 +382,46 @@ curl -X GET "http://localhost:8020/chunks/chunk-abc123" \\
                             )
 
             # 从relation_chunks存储中查找包含此chunk_id的关系
-            if hasattr(rag.relation_chunks, "_data"):
+            if hasattr(rag.relation_chunks, "_data") and isinstance(rag.relation_chunks._data, dict):
+                # JSON 存储：直接遍历字典
                 relation_chunks_dict = rag.relation_chunks._data
-
                 for relation_key, chunk_list in relation_chunks_dict.items():
                     if chunk_id in chunk_list:
-                        # relation_key格式: "source_entity<SEP>target_entity"
                         parts = relation_key.split("<SEP>")
                         if len(parts) == 2:
                             src_entity, tgt_entity = parts
-
-                            # 获取关系详情
                             relation_data = await rag.full_relations.get_by_id(
                                 relation_key
                             )
-
+                            if relation_data:
+                                relations.append(
+                                    {
+                                        "source_entity": src_entity,
+                                        "target_entity": tgt_entity,
+                                        "description": relation_data.get(
+                                            "description", ""
+                                        ),
+                                        "keywords": relation_data.get("keywords", ""),
+                                        "weight": relation_data.get("weight", 1.0),
+                                    }
+                                )
+                                
+            elif storage_class_name in ["MongoKVStorage", "PGKVStorage", "RedisKVStorage"]:
+                # 数据库存储：查询关联关系（性能警告）
+                logger.warning(
+                    f"使用数据库存储 '{storage_class_name}' 查询 chunk 关联关系可能较慢"
+                )
+                
+                # 从 chunk 数据中获取可能的关系信息
+                relation_refs = chunk_data.get("relations", [])
+                if relation_refs:
+                    for relation_key in relation_refs:
+                        parts = relation_key.split("<SEP>")
+                        if len(parts) == 2:
+                            src_entity, tgt_entity = parts
+                            relation_data = await rag.full_relations.get_by_id(
+                                relation_key
+                            )
                             if relation_data:
                                 relations.append(
                                     {
@@ -370,7 +475,9 @@ curl -X GET "http://localhost:8020/documents/doc-xyz789/chunks" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 ```
 
-**注意**：Chunks 按 `chunk_order_index` 排序，保持原文档顺序。
+**注意**：
+- Chunks 按 `chunk_order_index` 排序，保持原文档顺序
+- 支持的存储后端：JSON、MongoDB、PostgreSQL、Redis
         """,
         responses={
             200: {
@@ -421,26 +528,82 @@ curl -X GET "http://localhost:8020/documents/doc-xyz789/chunks" \\
         - chunks: chunk列表 (按顺序排序)
         """
         try:
-            # 从text_chunks存储中获取该文档的所有chunks
-            if hasattr(rag.text_chunks, "_data"):
-                all_chunks_dict = rag.text_chunks._data
-            else:
-                raise HTTPException(
-                    status_code=501,
-                    detail="当前存储后端不支持列出文档chunks，请使用JSON存储",
-                )
-
-            # 筛选出属于该文档的chunks
             doc_chunks = []
-            for chunk_id, chunk_data in all_chunks_dict.items():
-                if chunk_data.get("full_doc_id") == doc_id:
+            storage_class_name = rag.text_chunks.__class__.__name__
+            
+            # 根据存储后端类型获取文档的所有chunks
+            if hasattr(rag.text_chunks, "_data") and isinstance(rag.text_chunks._data, dict):
+                # JSON 存储
+                all_chunks_dict = rag.text_chunks._data
+                for chunk_id, chunk_data in all_chunks_dict.items():
+                    if chunk_data.get("full_doc_id") == doc_id:
+                        chunk_info = {
+                            "chunk_id": chunk_id,
+                            "content": chunk_data.get("content", ""),
+                            "tokens": chunk_data.get("tokens", 0),
+                            "chunk_order_index": chunk_data.get("chunk_order_index", 0),
+                        }
+                        doc_chunks.append(chunk_info)
+                        
+            elif storage_class_name == "MongoKVStorage":
+                # MongoDB 存储：直接查询指定文档的chunks
+                cursor = rag.text_chunks._data.find({"full_doc_id": doc_id})
+                async for chunk_data in cursor:
                     chunk_info = {
-                        "chunk_id": chunk_id,
+                        "chunk_id": chunk_data.get("_id", ""),
                         "content": chunk_data.get("content", ""),
                         "tokens": chunk_data.get("tokens", 0),
                         "chunk_order_index": chunk_data.get("chunk_order_index", 0),
                     }
                     doc_chunks.append(chunk_info)
+                    
+            elif storage_class_name == "PGKVStorage":
+                # PostgreSQL 存储：使用 WHERE 子句筛选
+                sql = """
+                    SELECT id, content, tokens, chunk_order_index
+                    FROM LIGHTRAG_DOC_CHUNKS
+                    WHERE workspace = $1 AND full_doc_id = $2
+                """
+                results = await rag.text_chunks.db.query(
+                    sql, [rag.text_chunks.workspace, doc_id], multirows=True
+                )
+                if results:
+                    for row in results:
+                        chunk_info = {
+                            "chunk_id": row.get("id", ""),
+                            "content": row.get("content", ""),
+                            "tokens": row.get("tokens", 0),
+                            "chunk_order_index": row.get("chunk_order_index", 0),
+                        }
+                        doc_chunks.append(chunk_info)
+                        
+            elif storage_class_name == "RedisKVStorage":
+                # Redis 存储：遍历所有chunk并筛选
+                pattern = f"{rag.text_chunks.namespace}:*"
+                cursor = 0
+                while True:
+                    cursor, keys = await rag.text_chunks._data.scan(
+                        cursor, match=pattern, count=100
+                    )
+                    for key in keys:
+                        chunk_data = await rag.text_chunks._data.hgetall(key)
+                        if chunk_data:
+                            full_doc_id = chunk_data.get(b"full_doc_id", b"").decode() if isinstance(chunk_data.get(b"full_doc_id"), bytes) else chunk_data.get("full_doc_id", "")
+                            if full_doc_id == doc_id:
+                                chunk_info = {
+                                    "chunk_id": key.decode() if isinstance(key, bytes) else key,
+                                    "content": chunk_data.get(b"content", b"").decode() if isinstance(chunk_data.get(b"content"), bytes) else chunk_data.get("content", ""),
+                                    "tokens": int(chunk_data.get(b"tokens", 0)) if chunk_data.get(b"tokens") else 0,
+                                    "chunk_order_index": int(chunk_data.get(b"chunk_order_index", 0)) if chunk_data.get(b"chunk_order_index") else 0,
+                                }
+                                doc_chunks.append(chunk_info)
+                    if cursor == 0:
+                        break
+            else:
+                raise HTTPException(
+                    status_code=501,
+                    detail=f"当前存储后端 '{storage_class_name}' 不支持列出文档chunks。支持的后端：JsonKVStorage、MongoKVStorage、PGKVStorage、RedisKVStorage",
+                )
 
             # 按chunk_order_index排序
             doc_chunks.sort(key=lambda x: x["chunk_order_index"])

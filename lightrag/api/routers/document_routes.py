@@ -1,5 +1,5 @@
 """
-This module contains all document-related routes for the LightRAG API.
+此模块包含LightRAG API的所有文档相关路由。
 """
 
 import asyncio
@@ -35,13 +35,12 @@ from ..config import global_args
 
 @lru_cache(maxsize=1)
 def _is_docling_available() -> bool:
-    """Check if docling is available (cached check).
+    """检查docling是否可用（缓存检查）。
+此函数使用lru_cache避免重复导入尝试。
+    结果在第一次调用后会被缓存。
 
-    This function uses lru_cache to avoid repeated import attempts.
-    The result is cached after the first call.
-
-    Returns:
-        bool: True if docling is available, False otherwise
+    返回:
+        bool: 如果docling可用则返回True，否则返回False
     """
     try:
         import docling  # noqa: F401  # type: ignore[import-not-found]
@@ -51,175 +50,174 @@ def _is_docling_available() -> bool:
         return False
 
 
-# Function to format datetime to ISO format string with timezone information
+# 将datetime格式化为带时区信息的ISO格式字符串的函数
 def format_datetime(dt: Any) -> Optional[str]:
-    """Format datetime to ISO format string with timezone information
+    """将datetime格式化为带时区信息的ISO格式字符串
 
-    Args:
-        dt: Datetime object, string, or None
+    参数:
+        dt: Datetime对象、字符串或None
 
-    Returns:
-        ISO format string with timezone information, or None if input is None
+    返回:
+        带时区信息的ISO格式字符串，如果输入为None则返回None
     """
     if dt is None:
         return None
     if isinstance(dt, str):
         return dt
 
-    # Check if datetime object has timezone information
+    # 检查datetime对象是否有时区信息
     if isinstance(dt, datetime):
-        # If datetime object has no timezone info (naive datetime), add UTC timezone
+        # 如果datetime对象没有时区信息（天真的datetime），则添加UTC时区
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
 
-    # Return ISO format string with timezone information
+    # 返回带时区信息的ISO格式字符串
+    return dt.isoformat()
+# 返回带时区信息的ISO格式字符串
     return dt.isoformat()
 
 
 router = APIRouter(
     prefix="/documents",
-    tags=["documents"],
+    tags=["文档"],
 )
 
-# Temporary file prefix
+# 临时文件前缀
 temp_prefix = "__tmp__"
 
 
 def sanitize_filename(filename: str, input_dir: Path) -> str:
     """
-    Sanitize uploaded filename to prevent Path Traversal attacks.
+    清理上传的文件名以防止路径遍历攻击。
 
-    Args:
-        filename: The original filename from the upload
-        input_dir: The target input directory
+    参数:
+        filename: 上传文件的原始文件名
+        input_dir: 目标输入目录
 
-    Returns:
-        str: Sanitized filename that is safe to use
+    返回:
+        str: 清理后的安全文件名
 
-    Raises:
-        HTTPException: If the filename is unsafe or invalid
+    异常:
+        HTTPException: 如果文件名不安全或无效
     """
-    # Basic validation
+    # 基本验证
     if not filename or not filename.strip():
-        raise HTTPException(status_code=400, detail="Filename cannot be empty")
+        raise HTTPException(status_code=400, detail="文件名不能为空")
 
-    # Remove path separators and traversal sequences
+    # 删除路径分隔符和遍历序列
     clean_name = filename.replace("/", "").replace("\\", "")
     clean_name = clean_name.replace("..", "")
 
-    # Remove control characters and null bytes
+    # 删除控制字符和空字节
     clean_name = "".join(c for c in clean_name if ord(c) >= 32 and c != "\x7f")
 
-    # Remove leading/trailing whitespace and dots
+    # 删除前导/尾随空白和点
     clean_name = clean_name.strip().strip(".")
-
-    # Check if anything is left after sanitization
+# 检查清理后是否还剩下内容
     if not clean_name:
         raise HTTPException(
-            status_code=400, detail="Invalid filename after sanitization"
+            status_code=400, detail="清理后的文件名无效"
         )
 
-    # Verify the final path stays within the input directory
+    # 验证最终路径是否在输入目录内
     try:
         final_path = (input_dir / clean_name).resolve()
         if not final_path.is_relative_to(input_dir.resolve()):
-            raise HTTPException(status_code=400, detail="Unsafe filename detected")
+            raise HTTPException(status_code=400, detail="检测到不安全的文件名")
     except (OSError, ValueError):
-        raise HTTPException(status_code=400, detail="Invalid filename")
+        raise HTTPException(status_code=400, detail="无效的文件名")
 
     return clean_name
 
 
 class ScanResponse(BaseModel):
-    """Response model for document scanning operation
+    """文档扫描操作的响应模型
 
-    Attributes:
-        status: Status of the scanning operation
-        message: Optional message with additional details
-        track_id: Tracking ID for monitoring scanning progress
+    属性:
+        status: 扫描操作的状态
+        message: 包含额外详情的可选消息
+        track_id: 用于监控扫描进度的跟踪ID
     """
-
     status: Literal["scanning_started"] = Field(
-        description="Status of the scanning operation"
+        description="扫描操作的状态"
     )
     message: Optional[str] = Field(
-        default=None, description="Additional details about the scanning operation"
+        default=None, description="关于扫描操作的额外详情"
     )
-    track_id: str = Field(description="Tracking ID for monitoring scanning progress")
+    track_id: str = Field(description="用于监控扫描进度的跟踪ID")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "status": "scanning_started",
-                "message": "Scanning process has been initiated in the background",
+                "message": "后台扫描进程已启动",
                 "track_id": "scan_20250729_170612_abc123",
             }
         }
 
 
 class ReprocessResponse(BaseModel):
-    """Response model for reprocessing failed documents operation
+    """重新处理失败文档操作的响应模型
 
-    Attributes:
-        status: Status of the reprocessing operation
-        message: Message describing the operation result
-        track_id: Always empty string. Reprocessed documents retain their original track_id.
+    属性:
+        status: 重新处理操作的状态
+        message: 描述操作结果的消息
+        track_id: 始终为空字符串。重新处理的文档保留其原始track_id。
     """
-
     status: Literal["reprocessing_started"] = Field(
-        description="Status of the reprocessing operation"
+        description="重新处理操作的状态"
     )
-    message: str = Field(description="Human-readable message describing the operation")
+    message: str = Field(description="描述操作的人类可读消息")
     track_id: str = Field(
         default="",
-        description="Always empty string. Reprocessed documents retain their original track_id from initial upload.",
+        description="始终为空字符串。重新处理的文档保留其初始上传时的原始track_id。",
     )
 
     class Config:
         json_schema_extra = {
             "example": {
                 "status": "reprocessing_started",
-                "message": "Reprocessing of failed documents has been initiated in background",
+                "message": "后台已启动对失败文档的重新处理",
                 "track_id": "",
             }
         }
 
 
 class CancelPipelineResponse(BaseModel):
-    """Response model for pipeline cancellation operation
+    """管道取消操作的响应模型
 
-    Attributes:
-        status: Status of the cancellation request
-        message: Message describing the operation result
+    属性:
+        status: 取消请求的状态
+        message: 描述操作结果的消息
     """
 
     status: Literal["cancellation_requested", "not_busy"] = Field(
-        description="Status of the cancellation request"
+        description="取消请求的状态"
     )
-    message: str = Field(description="Human-readable message describing the operation")
-
+    message: str = Field(description="描述操作的人类可读消息")
+    
     class Config:
         json_schema_extra = {
             "example": {
                 "status": "cancellation_requested",
-                "message": "Pipeline cancellation has been requested. Documents will be marked as FAILED.",
+                "message": "已请求取消管道。文档将被标记为FAILED。",
             }
         }
 
 
 class InsertTextRequest(BaseModel):
-    """Request model for inserting a single text document
+    """插入单个文本文档的请求模型
 
-    Attributes:
-        text: The text content to be inserted into the RAG system
-        file_source: Source of the text (optional)
+    属性:
+        text: 要插入到RAG系统中的文本内容
+        file_source: 文本来源（可选）
     """
 
     text: str = Field(
         min_length=1,
-        description="The text to insert",
+        description="要插入的文本",
     )
-    file_source: str = Field(default=None, min_length=0, description="File Source")
+    file_source: str = Field(default=None, min_length=0, description="文件来源")
 
     @field_validator("text", mode="after")
     @classmethod
@@ -230,37 +228,37 @@ class InsertTextRequest(BaseModel):
     @classmethod
     def strip_source_after(cls, file_source: str) -> str:
         return file_source.strip()
-
+        
     class Config:
         json_schema_extra = {
             "example": {
-                "text": "This is a sample text to be inserted into the RAG system.",
-                "file_source": "Source of the text (optional)",
+                "text": "这是要插入到RAG系统中的示例文本。",
+                "file_source": "文本来源（可选）",
             }
         }
 
 
 class InsertTextsRequest(BaseModel):
-    """Request model for inserting multiple text documents
+    """插入多个文本文档的请求模型
 
-    Attributes:
-        texts: List of text contents to be inserted into the RAG system
-        file_sources: Sources of the texts (optional)
+    属性:
+        texts: 要插入到RAG系统中的文本内容列表
+        file_sources: 文本来源（可选）
     """
 
     texts: list[str] = Field(
         min_length=1,
-        description="The texts to insert",
+        description="要插入的文本",
     )
     file_sources: list[str] = Field(
-        default=None, min_length=0, description="Sources of the texts"
+        default=None, min_length=0, description="文本来源"
     )
 
     @field_validator("texts", mode="after")
     @classmethod
     def strip_texts_after(cls, texts: list[str]) -> list[str]:
         return [text.strip() for text in texts]
-
+        
     @field_validator("file_sources", mode="after")
     @classmethod
     def strip_sources_after(cls, file_sources: list[str]) -> list[str]:
@@ -270,68 +268,67 @@ class InsertTextsRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "texts": [
-                    "This is the first text to be inserted.",
-                    "This is the second text to be inserted.",
+                    "这是要插入的第一个文本。",
+                    "这是要插入的第二个文本。",
                 ],
                 "file_sources": [
-                    "First file source (optional)",
+                    "第一个文件来源（可选）",
                 ],
             }
         }
 
 
 class InsertResponse(BaseModel):
-    """Response model for document insertion operations
+    """文档插入操作的响应模型
 
-    Attributes:
-        status: Status of the operation (success, duplicated, partial_success, failure)
-        message: Detailed message describing the operation result
-        track_id: Tracking ID for monitoring processing status
+    属性:
+        status: 操作状态（success, duplicated, partial_success, failure）
+        message: 描述操作结果的详细消息
+        track_id: 用于监控处理状态的跟踪ID
     """
-
     status: Literal["success", "duplicated", "partial_success", "failure"] = Field(
-        description="Status of the operation"
+        description="操作状态"
     )
-    message: str = Field(description="Message describing the operation result")
-    track_id: str = Field(description="Tracking ID for monitoring processing status")
+    message: str = Field(description="描述操作结果的消息")
+    track_id: str = Field(description="用于监控处理状态的跟踪ID")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "status": "success",
-                "message": "File 'document.pdf' uploaded successfully. Processing will continue in background.",
+                "message": "文件'document.pdf'上传成功。将在后台继续处理。",
                 "track_id": "upload_20250729_170612_abc123",
             }
         }
 
 
 class ClearDocumentsResponse(BaseModel):
-    """Response model for document clearing operation
+    """清除文档操作的响应模型
 
-    Attributes:
-        status: Status of the clear operation
-        message: Detailed message describing the operation result
+    属性:
+        status: 清除操作的状态
+        message: 描述操作结果的详细消息
     """
 
     status: Literal["success", "partial_success", "busy", "fail"] = Field(
-        description="Status of the clear operation"
+        description="清除操作的状态"
     )
-    message: str = Field(description="Message describing the operation result")
-
+    message: str = Field(description="描述操作结果的消息")
+    
     class Config:
         json_schema_extra = {
             "example": {
                 "status": "success",
-                "message": "All documents cleared successfully. Deleted 15 files.",
+                "message": "所有文档已成功清除。删除了15个文件。",
             }
         }
 
 
 class ClearCacheRequest(BaseModel):
-    """Request model for clearing cache
+    """清除缓存的请求模型
 
-    This model is kept for API compatibility but no longer accepts any parameters.
-    All cache will be cleared regardless of the request content.
+    此模型保留用于API兼容性，但不再接受任何参数。
+    无论请求内容如何，所有缓存都将被清除。
     """
 
     class Config:
@@ -339,122 +336,120 @@ class ClearCacheRequest(BaseModel):
 
 
 class ClearCacheResponse(BaseModel):
-    """Response model for cache clearing operation
+    """清除缓存操作的响应模型
 
-    Attributes:
-        status: Status of the clear operation
-        message: Detailed message describing the operation result
+    属性:
+        status: 清除操作的状态
+        message: 描述操作结果的详细消息
     """
 
     status: Literal["success", "fail"] = Field(
-        description="Status of the clear operation"
+        description="清除操作的状态"
     )
-    message: str = Field(description="Message describing the operation result")
+    message: str = Field(description="描述操作结果的消息")
 
     class Config:
         json_schema_extra = {
             "example": {
                 "status": "success",
-                "message": "Successfully cleared cache for modes: ['default', 'naive']",
+                "message": "已成功清除以下模式的缓存: ['default', 'naive']",
             }
         }
 
 
-"""Response model for document status
-
-Attributes:
-    id: Document identifier
-    content_summary: Summary of document content
-    content_length: Length of document content
-    status: Current processing status
-    created_at: Creation timestamp (ISO format string)
-    updated_at: Last update timestamp (ISO format string)
-    chunks_count: Number of chunks (optional)
-    error: Error message if any (optional)
-    metadata: Additional metadata (optional)
-    file_path: Path to the document file
-"""
-
-
 class DeleteDocRequest(BaseModel):
-    doc_ids: List[str] = Field(..., description="The IDs of the documents to delete.")
+    doc_ids: List[str] = Field(..., description="要删除的文档ID列表。")
     delete_file: bool = Field(
         default=False,
-        description="Whether to delete the corresponding file in the upload directory.",
+        description="是否删除上传目录中的对应文件。",
     )
     delete_llm_cache: bool = Field(
         default=False,
-        description="Whether to delete cached LLM extraction results for the documents.",
+        description="是否删除文档的缓存LLM提取结果。",
     )
-
+    
     @field_validator("doc_ids", mode="after")
     @classmethod
     def validate_doc_ids(cls, doc_ids: List[str]) -> List[str]:
         if not doc_ids:
-            raise ValueError("Document IDs list cannot be empty")
+            raise ValueError("文档ID列表不能为空")
 
         validated_ids = []
         for doc_id in doc_ids:
             if not doc_id or not doc_id.strip():
-                raise ValueError("Document ID cannot be empty")
+                raise ValueError("文档ID不能为空")
             validated_ids.append(doc_id.strip())
 
-        # Check for duplicates
+        # 检查重复项
         if len(validated_ids) != len(set(validated_ids)):
-            raise ValueError("Document IDs must be unique")
+            raise ValueError("文档ID必须唯一")
 
         return validated_ids
 
 
 class DeleteEntityRequest(BaseModel):
-    entity_name: str = Field(..., description="The name of the entity to delete.")
+    entity_name: str = Field(..., description="要删除的实体名称。")
 
     @field_validator("entity_name", mode="after")
     @classmethod
     def validate_entity_name(cls, entity_name: str) -> str:
         if not entity_name or not entity_name.strip():
-            raise ValueError("Entity name cannot be empty")
+            raise ValueError("实体名称不能为空")
         return entity_name.strip()
 
 
 class DeleteRelationRequest(BaseModel):
-    source_entity: str = Field(..., description="The name of the source entity.")
-    target_entity: str = Field(..., description="The name of the target entity.")
+    source_entity: str = Field(..., description="源实体的名称。")
+    target_entity: str = Field(..., description="目标实体的名称。")
 
     @field_validator("source_entity", "target_entity", mode="after")
     @classmethod
     def validate_entity_names(cls, entity_name: str) -> str:
         if not entity_name or not entity_name.strip():
-            raise ValueError("Entity name cannot be empty")
+            raise ValueError("实体名称不能为空")
         return entity_name.strip()
 
 
 class DocStatusResponse(BaseModel):
-    id: str = Field(description="Document identifier")
-    content_summary: str = Field(description="Summary of document content")
-    content_length: int = Field(description="Length of document content in characters")
-    status: DocStatus = Field(description="Current processing status")
-    created_at: str = Field(description="Creation timestamp (ISO format string)")
-    updated_at: str = Field(description="Last update timestamp (ISO format string)")
+    """文档状态的响应模型
+
+    属性:
+        id: 文档标识符
+        content_summary: 文档内容摘要
+        content_length: 文档内容长度
+        status: 当前处理状态
+        created_at: 创建时间戳（ISO格式字符串）
+        updated_at: 最后更新时间戳（ISO格式字符串）
+        chunks_count: 块数量（可选）
+        error: 错误消息（可选）
+        metadata: 附加元数据（可选）
+        file_path: 文档文件路径
+    """
+    id: str = Field(description="文档标识符")
+    content_summary: str = Field(description="文档内容摘要")
+    content_length: int = Field(description="文档内容的字符长度")
+    status: DocStatus = Field(description="当前处理状态")
+    created_at: str = Field(description="创建时间戳（ISO格式字符串）")
+    updated_at: str = Field(description="最后更新时间戳（ISO格式字符串）")
     track_id: Optional[str] = Field(
-        default=None, description="Tracking ID for monitoring progress"
+        default=None, description="用于监控进度的跟踪ID"
     )
     chunks_count: Optional[int] = Field(
-        default=None, description="Number of chunks the document was split into"
+        default=None, description="文档被分割成的块数"
     )
     error_msg: Optional[str] = Field(
-        default=None, description="Error message if processing failed"
+        default=None, description="如果处理失败则为错误消息"
     )
     metadata: Optional[dict[str, Any]] = Field(
-        default=None, description="Additional metadata about the document"
+        default=None, description="关于文档的附加元数据"
     )
-    file_path: str = Field(description="Path to the document file")
-
+    file_path: str = Field(description="文档文件路径")
+    
     class Config:
         json_schema_extra = {
             "example": {
                 "id": "doc_123456",
-                "content_summary": "Research paper on machine learning",
+                "content_summary": "机器学习研究论文",
                 "content_length": 15240,
                 "status": "processed",
                 "created_at": "2025-03-31T12:34:56",
@@ -469,17 +464,16 @@ class DocStatusResponse(BaseModel):
 
 
 class DocsStatusesResponse(BaseModel):
-    """Response model for document statuses
+    """文档状态的响应模型
 
-    Attributes:
-        statuses: Dictionary mapping document status to lists of document status responses
+    属性:
+        statuses: 将文档状态映射到文档状态响应列表的字典
     """
-
     statuses: Dict[DocStatus, List[DocStatusResponse]] = Field(
         default_factory=dict,
-        description="Dictionary mapping document status to lists of document status responses",
+        description="将文档状态映射到文档状态响应列表的字典",
     )
-
+    
     class Config:
         json_schema_extra = {
             "example": {
@@ -487,7 +481,7 @@ class DocsStatusesResponse(BaseModel):
                     "PENDING": [
                         {
                             "id": "doc_123",
-                            "content_summary": "Pending document",
+                            "content_summary": "待处理文档",
                             "content_length": 5000,
                             "status": "pending",
                             "created_at": "2025-03-31T10:00:00",
@@ -502,7 +496,7 @@ class DocsStatusesResponse(BaseModel):
                     "PREPROCESSED": [
                         {
                             "id": "doc_789",
-                            "content_summary": "Document pending final indexing",
+                            "content_summary": "等待最终索引的文档",
                             "content_length": 7200,
                             "status": "preprocessed",
                             "created_at": "2025-03-31T09:30:00",
@@ -517,7 +511,7 @@ class DocsStatusesResponse(BaseModel):
                     "PROCESSED": [
                         {
                             "id": "doc_456",
-                            "content_summary": "Processed document",
+                            "content_summary": "已处理文档",
                             "content_length": 8000,
                             "status": "processed",
                             "created_at": "2025-03-31T09:00:00",
@@ -535,22 +529,22 @@ class DocsStatusesResponse(BaseModel):
 
 
 class TrackStatusResponse(BaseModel):
-    """Response model for tracking document processing status by track_id
+    """通过track_id跟踪文档处理状态的响应模型
 
-    Attributes:
-        track_id: The tracking ID
-        documents: List of documents associated with this track_id
-        total_count: Total number of documents for this track_id
-        status_summary: Count of documents by status
+    属性:
+        track_id: 跟踪ID
+        documents: 与此track_id关联的文档列表
+        total_count: 此track_id的文档总数
+        status_summary: 按状态分类的文档计数
     """
 
-    track_id: str = Field(description="The tracking ID")
+    track_id: str = Field(description="跟踪ID")
     documents: List[DocStatusResponse] = Field(
-        description="List of documents associated with this track_id"
+        description="与此track_id关联的文档列表"
     )
-    total_count: int = Field(description="Total number of documents for this track_id")
-    status_summary: Dict[str, int] = Field(description="Count of documents by status")
-
+    total_count: int = Field(description="此track_id的文档总数")
+    status_summary: Dict[str, int] = Field(description="按状态分类的文档计数")
+    
     class Config:
         json_schema_extra = {
             "example": {
@@ -558,7 +552,7 @@ class TrackStatusResponse(BaseModel):
                 "documents": [
                     {
                         "id": "doc_123456",
-                        "content_summary": "Research paper on machine learning",
+                        "content_summary": "机器学习研究论文",
                         "content_length": 15240,
                         "status": "PROCESSED",
                         "created_at": "2025-03-31T12:34:56",
@@ -577,28 +571,27 @@ class TrackStatusResponse(BaseModel):
 
 
 class DocumentsRequest(BaseModel):
-    """Request model for paginated document queries
+    """分页文档查询的请求模型
 
-    Attributes:
-        status_filter: Filter by document status, None for all statuses
-        page: Page number (1-based)
-        page_size: Number of documents per page (10-200)
-        sort_field: Field to sort by ('created_at', 'updated_at', 'id', 'file_path')
-        sort_direction: Sort direction ('asc' or 'desc')
+    属性:
+        status_filter: 按文档状态过滤，None表示所有状态
+        page: 页码（从1开始）
+        page_size: 每页文档数（10-200）
+        sort_field: 排序字段（'created_at', 'updated_at', 'id', 'file_path'）
+        sort_direction: 排序方向（'asc' 或 'desc'）
     """
-
     status_filter: Optional[DocStatus] = Field(
-        default=None, description="Filter by document status, None for all statuses"
+        default=None, description="按文档状态过滤，None表示所有状态"
     )
-    page: int = Field(default=1, ge=1, description="Page number (1-based)")
+    page: int = Field(default=1, ge=1, description="页码（从1开始）")
     page_size: int = Field(
-        default=50, ge=10, le=200, description="Number of documents per page (10-200)"
+        default=50, ge=10, le=200, description="每页文档数（10-200）"
     )
     sort_field: Literal["created_at", "updated_at", "id", "file_path"] = Field(
-        default="updated_at", description="Field to sort by"
+        default="updated_at", description="排序字段"
     )
     sort_direction: Literal["asc", "desc"] = Field(
-        default="desc", description="Sort direction"
+        default="desc", description="排序方向"
     )
 
     class Config:
@@ -614,23 +607,23 @@ class DocumentsRequest(BaseModel):
 
 
 class PaginationInfo(BaseModel):
-    """Pagination information
+    """分页信息
 
-    Attributes:
-        page: Current page number
-        page_size: Number of items per page
-        total_count: Total number of items
-        total_pages: Total number of pages
-        has_next: Whether there is a next page
-        has_prev: Whether there is a previous page
+    属性:
+        page: 当前页码
+        page_size: 每页项目数
+        total_count: 项目总数
+        total_pages: 总页数
+        has_next: 是否有下一页
+        has_prev: 是否有上一页
     """
 
-    page: int = Field(description="Current page number")
-    page_size: int = Field(description="Number of items per page")
-    total_count: int = Field(description="Total number of items")
-    total_pages: int = Field(description="Total number of pages")
-    has_next: bool = Field(description="Whether there is a next page")
-    has_prev: bool = Field(description="Whether there is a previous page")
+    page: int = Field(description="当前页码")
+    page_size: int = Field(description="每页项目数")
+    total_count: int = Field(description="项目总数")
+    total_pages: int = Field(description="总页数")
+    has_next: bool = Field(description="是否有下一页")
+    has_prev: bool = Field(description="是否有上一页")
 
     class Config:
         json_schema_extra = {
@@ -646,29 +639,29 @@ class PaginationInfo(BaseModel):
 
 
 class PaginatedDocsResponse(BaseModel):
-    """Response model for paginated document queries
+    """分页文档查询的响应模型
 
-    Attributes:
-        documents: List of documents for the current page
-        pagination: Pagination information
-        status_counts: Count of documents by status for all documents
+    属性:
+        documents: 当前页面的文档列表
+        pagination: 分页信息
+        status_counts: 所有文档按状态分类的计数
     """
 
     documents: List[DocStatusResponse] = Field(
-        description="List of documents for the current page"
+        description="当前页面的文档列表"
     )
-    pagination: PaginationInfo = Field(description="Pagination information")
+    pagination: PaginationInfo = Field(description="分页信息")
     status_counts: Dict[str, int] = Field(
-        description="Count of documents by status for all documents"
+        description="所有文档按状态分类的计数"
     )
-
+    
     class Config:
         json_schema_extra = {
             "example": {
                 "documents": [
                     {
                         "id": "doc_123456",
-                        "content_summary": "Research paper on machine learning",
+                        "content_summary": "机器学习研究论文",
                         "content_length": 15240,
                         "status": "PROCESSED",
                         "created_at": "2025-03-31T12:34:56",
@@ -700,13 +693,13 @@ class PaginatedDocsResponse(BaseModel):
 
 
 class StatusCountsResponse(BaseModel):
-    """Response model for document status counts
+    """文档状态计数的响应模型
 
-    Attributes:
-        status_counts: Count of documents by status
+    属性:
+        status_counts: 按状态分类的文档计数
     """
 
-    status_counts: Dict[str, int] = Field(description="Count of documents by status")
+    status_counts: Dict[str, int] = Field(description="按状态分类的文档计数")
 
     class Config:
         json_schema_extra = {
@@ -723,13 +716,22 @@ class StatusCountsResponse(BaseModel):
 
 
 class PipelineStatusResponse(BaseModel):
-    """Response model for pipeline status
+    """管道状态的响应模型
+    
+    属性:
+        autoscanned: 自动扫描是否已启动
+        busy: 管道当前是否忙碌
+        job_name: 当前作业名称（例如，索引文件/索引文本）
+        job_start: 作业开始时间作为带时区的ISO格式字符串（可选）
+        docs: 待索引的文档总数
+        batchs: 处理文档的批次数
+        cur_batch: 当前处理批次
+        request_pending: 待处理请求的标志
+        latest_message: 管道处理的最新消息
+        history_messages: 历史消息列表
+        update_status: 所有命名空间的更新标志状态
+    """
 
-    Attributes:
-        autoscanned: Whether auto-scan has started
-        busy: Whether the pipeline is currently busy
-        job_name: Current job name (e.g., indexing files/indexing texts)
-        job_start: Job start time as ISO format string with timezone (optional)
         docs: Total number of documents to be indexed
         batchs: Number of batches for processing documents
         cur_batch: Current processing batch
@@ -2060,53 +2062,57 @@ def create_document_routes(
     combined_auth = get_combined_auth_dependency(api_key)
 
     @router.post(
-        "/scan", response_model=ScanResponse, dependencies=[Depends(combined_auth)]
+        "/scan", response_model=ScanResponse, dependencies=[Depends(combined_auth)],
+        summary="扫描新文档",
+        description="触发扫描新文档的进程。",
+        response_description="扫描操作的结果"
     )
     async def scan_for_new_documents(background_tasks: BackgroundTasks):
         """
-        Trigger the scanning process for new documents.
+        触发新文档的扫描进程。
 
-        This endpoint initiates a background task that scans the input directory for new documents
-        and processes them. If a scanning process is already running, it returns a status indicating
-        that fact.
+        此端点启动一个后台任务，扫描输入目录中的新文档并处理它们。
+        如果扫描进程已在运行，则返回指示该事实的状态。
 
-        Returns:
-            ScanResponse: A response object containing the scanning status and track_id
+        返回:
+            ScanResponse: 包含扫描状态和track_id的响应对象
         """
-        # Generate track_id with "scan" prefix for scanning operation
+        # 生成带"scan"前缀的track_id用于扫描操作
         track_id = generate_track_id("scan")
 
-        # Start the scanning process in the background with track_id
+        # 使用track_id在后台启动扫描进程
         background_tasks.add_task(run_scanning_process, rag, doc_manager, track_id)
         return ScanResponse(
             status="scanning_started",
-            message="Scanning process has been initiated in the background",
+            message="后台扫描进程已启动",
             track_id=track_id,
         )
 
     @router.post(
-        "/upload", response_model=InsertResponse, dependencies=[Depends(combined_auth)]
+        "/upload", response_model=InsertResponse, dependencies=[Depends(combined_auth)],
+        summary="上传文档",
+        description="上传文件到输入目录并建立索引。",
+        response_description="上传操作的结果"
     )
     async def upload_to_input_dir(
         background_tasks: BackgroundTasks, file: UploadFile = File(...)
     ):
         """
-        Upload a file to the input directory and index it.
+        上传文件到输入目录并建立索引。
 
-        This API endpoint accepts a file through an HTTP POST request, checks if the
-        uploaded file is of a supported type, saves it in the specified input directory,
-        indexes it for retrieval, and returns a success status with relevant details.
+        此API端点通过HTTP POST请求接收文件，检查上传的文件是否为支持的类型，
+        将其保存在指定的输入目录中，建立索引以供检索，并返回包含相关详细信息的成功状态。
 
-        Args:
-            background_tasks: FastAPI BackgroundTasks for async processing
-            file (UploadFile): The file to be uploaded. It must have an allowed extension.
+        参数:
+            background_tasks: FastAPI后台任务用于异步处理
+            file (UploadFile): 要上传的文件。它必须具有允许的扩展名。
 
-        Returns:
-            InsertResponse: A response object containing the upload status and a message.
-                status can be "success", "duplicated", or error is thrown.
+        返回:
+            InsertResponse: 包含上传状态和消息的响应对象。
+                status可以是"success"、"duplicated"，或者抛出错误。
 
-        Raises:
-            HTTPException: If the file type is not supported (400) or other errors occur (500).
+        异常:
+            HTTPException: 如果文件类型不受支持（400）或其他错误发生（500）。
         """
         try:
             # Sanitize filename to prevent Path Traversal attacks
@@ -2160,26 +2166,28 @@ def create_document_routes(
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.post(
-        "/text", response_model=InsertResponse, dependencies=[Depends(combined_auth)]
+        "/text", response_model=InsertResponse, dependencies=[Depends(combined_auth)],
+        summary="插入文本",
+        description="将文本插入到RAG系统中。",
+        response_description="文本插入操作的结果"
     )
     async def insert_text(
         request: InsertTextRequest, background_tasks: BackgroundTasks
     ):
         """
-        Insert text into the RAG system.
+        将文本插入到RAG系统中。
 
-        This endpoint allows you to insert text data into the RAG system for later retrieval
-        and use in generating responses.
+        此端点允许您将文本数据插入到RAG系统中，以供后续检索并在生成响应时使用。
 
-        Args:
-            request (InsertTextRequest): The request body containing the text to be inserted.
-            background_tasks: FastAPI BackgroundTasks for async processing
+        参数:
+            request (InsertTextRequest): 包含要插入文本的请求体。
+            background_tasks: FastAPI后台任务用于异步处理
 
-        Returns:
-            InsertResponse: A response object containing the status of the operation.
+        返回:
+            InsertResponse: 包含操作状态的响应对象。
 
-        Raises:
-            HTTPException: If an error occurs during text processing (500).
+        异常:
+            HTTPException: 如果在文本处理过程中发生错误（500）。
         """
         try:
             # Check if file_source already exists in doc_status storage
@@ -2241,65 +2249,63 @@ def create_document_routes(
         "/texts",
         response_model=InsertResponse,
         dependencies=[Depends(combined_auth)],
+        summary="插入多个文本",
+        description="将多个文本插入到RAG系统中。",
+        response_description="文本插入操作的结果"
     )
     async def insert_texts(
         request: InsertTextsRequest, background_tasks: BackgroundTasks
     ):
         """
-        Insert multiple texts into the RAG system.
+        将多个文本插入到RAG系统中。
 
-        This endpoint allows you to insert multiple text entries into the RAG system
-        in a single request.
+        此端点允许您将多个文本数据插入到RAG系统中，以供后续检索并在生成响应时使用。
 
-        Args:
-            request (InsertTextsRequest): The request body containing the list of texts.
-            background_tasks: FastAPI BackgroundTasks for async processing
+        参数:
+            request (InsertTextsRequest): 包含要插入文本的请求体。
+            background_tasks: FastAPI后台任务用于异步处理
 
-        Returns:
-            InsertResponse: A response object containing the status of the operation.
+        返回:
+            InsertResponse: 包含操作状态的响应对象。
 
-        Raises:
-            HTTPException: If an error occurs during text processing (500).
+        异常:
+            HTTPException: 如果在文本处理过程中发生错误（500）。
         """
         try:
-            # Check if any file_sources already exist in doc_status storage
+            # 检查file_sources是否已存在于doc_status存储中
             if request.file_sources:
                 for file_source in request.file_sources:
-                    if (
-                        file_source
-                        and file_source.strip()
-                        and file_source != "unknown_source"
-                    ):
+                    if file_source and file_source.strip() and file_source != "unknown_source":
                         existing_doc_data = await rag.doc_status.get_doc_by_file_path(
                             file_source
                         )
                         if existing_doc_data:
-                            # Get document status and track_id from existing document
+                            # 从现有文档获取文档状态和track_id
                             status = existing_doc_data.get("status", "unknown")
-                            # Use `or ""` to handle both missing key and None value (e.g., legacy rows without track_id)
+                            # 使用`or ""`处理缺失键和None值（例如，没有track_id的旧行）
                             existing_track_id = existing_doc_data.get("track_id") or ""
                             return InsertResponse(
                                 status="duplicated",
-                                message=f"File source '{file_source}' already exists in document storage (Status: {status}).",
+                                message=f"文本源'{file_source}'已存在于文档存储中（状态: {status}）。",
                                 track_id=existing_track_id,
                             )
 
-            # Check if any content already exists by computing content hash (doc_id)
+            # 通过计算内容哈希（doc_id）检查任何内容是否已存在
             for text in request.texts:
                 sanitized_text = sanitize_text_for_encoding(text)
                 content_doc_id = compute_mdhash_id(sanitized_text, prefix="doc-")
                 existing_doc = await rag.doc_status.get_by_id(content_doc_id)
                 if existing_doc:
-                    # Content already exists, return duplicated with existing track_id
+                    # 内容已存在，返回重复并附带现有track_id
                     status = existing_doc.get("status", "unknown")
                     existing_track_id = existing_doc.get("track_id") or ""
                     return InsertResponse(
                         status="duplicated",
-                        message=f"Identical content already exists in document storage (doc_id: {content_doc_id}, Status: {status}).",
+                        message=f"相同内容已存在于文档存储中（doc_id: {content_doc_id}，状态: {status}）。",
                         track_id=existing_track_id,
                     )
 
-            # Generate track_id for texts insertion
+            # 生成跟踪ID用于文本插入
             track_id = generate_track_id("insert")
 
             background_tasks.add_task(
@@ -2312,11 +2318,11 @@ def create_document_routes(
 
             return InsertResponse(
                 status="success",
-                message="Texts successfully received. Processing will continue in background.",
+                message=f"{len(request.texts)}个文本已成功提交处理。将在后台继续处理。",
                 track_id=track_id,
             )
         except Exception as e:
-            logger.error(f"Error /documents/texts: {str(e)}")
+            logger.error(f"插入文本时出错: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
 
@@ -2808,33 +2814,36 @@ def create_document_routes(
         "/clear_cache",
         response_model=ClearCacheResponse,
         dependencies=[Depends(combined_auth)],
+        summary="清除缓存",
+        description="清除LLM响应缓存存储中的所有缓存数据。",
+        response_description="清除缓存操作的结果"
     )
     async def clear_cache(request: ClearCacheRequest):
         """
-        Clear all cache data from the LLM response cache storage.
+        清除LLM响应缓存存储中的所有缓存数据。
 
-        This endpoint clears all cached LLM responses regardless of mode.
-        The request body is accepted for API compatibility but is ignored.
+        此端点清除所有模式的缓存LLM响应。
+        出于API兼容性考虑接受请求体，但会被忽略。
 
-        Args:
-            request (ClearCacheRequest): The request body (ignored for compatibility).
+        参数:
+            request (ClearCacheRequest): 请求体（出于兼容性考虑被忽略）。
 
-        Returns:
-            ClearCacheResponse: A response object containing the status and message.
+        返回:
+            ClearCacheResponse: 包含状态和消息的响应对象。
 
-        Raises:
-            HTTPException: If an error occurs during cache clearing (500).
+        异常:
+            HTTPException: 如果清除缓存时发生错误（500）。
         """
         try:
-            # Call the aclear_cache method (no modes parameter)
+            # 调用aclear_cache方法（无模式参数）
             await rag.aclear_cache()
 
-            # Prepare success message
-            message = "Successfully cleared all cache"
+            # 准备成功消息
+            message = "已成功清除所有缓存"
 
             return ClearCacheResponse(status="success", message=message)
         except Exception as e:
-            logger.error(f"Error clearing cache: {str(e)}")
+            logger.error(f"清除缓存时出错: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
 

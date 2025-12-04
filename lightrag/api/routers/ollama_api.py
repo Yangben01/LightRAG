@@ -26,12 +26,14 @@ class SearchMode(str, Enum):
 
 
 class OllamaMessage(BaseModel):
+    """Ollama消息格式"""
     role: str
     content: str
     images: Optional[List[str]] = None
 
 
 class OllamaChatRequest(BaseModel):
+    """Ollama聊天请求"""
     model: str
     messages: List[OllamaMessage]
     stream: bool = True
@@ -40,6 +42,7 @@ class OllamaChatRequest(BaseModel):
 
 
 class OllamaChatResponse(BaseModel):
+    """Ollama聊天响应"""
     model: str
     created_at: str
     message: OllamaMessage
@@ -47,6 +50,7 @@ class OllamaChatResponse(BaseModel):
 
 
 class OllamaGenerateRequest(BaseModel):
+    """Ollama生成请求"""
     model: str
     prompt: str
     system: Optional[str] = None
@@ -55,6 +59,7 @@ class OllamaGenerateRequest(BaseModel):
 
 
 class OllamaGenerateResponse(BaseModel):
+    """Ollama生成响应"""
     model: str
     created_at: str
     response: str
@@ -69,10 +74,12 @@ class OllamaGenerateResponse(BaseModel):
 
 
 class OllamaVersionResponse(BaseModel):
+    """Ollama版本响应"""
     version: str
 
 
 class OllamaModelDetails(BaseModel):
+    """Ollama模型详情"""
     parent_model: str
     format: str
     family: str
@@ -82,6 +89,7 @@ class OllamaModelDetails(BaseModel):
 
 
 class OllamaModel(BaseModel):
+    """Ollama模型"""
     name: str
     model: str
     size: int
@@ -91,10 +99,12 @@ class OllamaModel(BaseModel):
 
 
 class OllamaTagResponse(BaseModel):
+    """Ollama标签响应"""
     models: List[OllamaModel]
 
 
 class OllamaRunningModelDetails(BaseModel):
+    """Ollama运行中模型详情"""
     parent_model: str
     format: str
     family: str
@@ -104,6 +114,7 @@ class OllamaRunningModelDetails(BaseModel):
 
 
 class OllamaRunningModel(BaseModel):
+    """Ollama运行中模型"""
     name: str
     model: str
     size: int
@@ -114,6 +125,7 @@ class OllamaRunningModel(BaseModel):
 
 
 class OllamaPsResponse(BaseModel):
+    """Ollama进程响应"""
     models: List[OllamaRunningModel]
 
 
@@ -121,60 +133,60 @@ async def parse_request_body(
     request: Request, model_class: Type[BaseModel]
 ) -> BaseModel:
     """
-    Parse request body based on Content-Type header.
-    Supports both application/json and application/octet-stream.
+    根据Content-Type头解析请求体。
+    支持application/json和application/octet-stream。
 
-    Args:
-        request: The FastAPI Request object
-        model_class: The Pydantic model class to parse the request into
+    参数:
+        request: FastAPI请求对象
+        model_class: 要解析请求的Pydantic模型类
 
-    Returns:
-        An instance of the provided model_class
+    返回:
+        提供的model_class的一个实例
     """
     content_type = request.headers.get("content-type", "").lower()
 
     try:
         if content_type.startswith("application/json"):
-            # FastAPI already handles JSON parsing for us
+            # FastAPI已经为我们处理了JSON解析
             body = await request.json()
         elif content_type.startswith("application/octet-stream"):
-            # Manually parse octet-stream as JSON
+            # 手动将octet-stream解析为JSON
             body_bytes = await request.body()
             body = json.loads(body_bytes.decode("utf-8"))
         else:
-            # Try to parse as JSON for any other content type
+            # 尝试将任何其他内容类型解析为JSON
             body_bytes = await request.body()
             body = json.loads(body_bytes.decode("utf-8"))
 
-        # Create an instance of the model
+        # 创建模型的实例
         return model_class(**body)
     except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON in request body")
+        raise HTTPException(status_code=400, detail="请求体中包含无效的JSON")
     except Exception as e:
         raise HTTPException(
-            status_code=400, detail=f"Error parsing request body: {str(e)}"
+            status_code=400, detail=f"解析请求体时出错: {str(e)}"
         )
 
 
 def estimate_tokens(text: str) -> int:
-    """Estimate the number of tokens in text using tiktoken"""
+    """使用tiktoken估算文本中的令牌数"""
     tokens = TiktokenTokenizer().encode(text)
     return len(tokens)
 
 
 def parse_query_mode(query: str) -> tuple[str, SearchMode, bool, Optional[str]]:
-    """Parse query prefix to determine search mode
-    Returns tuple of (cleaned_query, search_mode, only_need_context, user_prompt)
+    """解析查询前缀以确定搜索模式
+    返回元组(cleaned_query, search_mode, only_need_context, user_prompt)
 
-    Examples:
-    - "/local[use mermaid format for diagrams] query string" -> (cleaned_query, SearchMode.local, False, "use mermaid format for diagrams")
-    - "/[use mermaid format for diagrams] query string" -> (cleaned_query, SearchMode.hybrid, False, "use mermaid format for diagrams")
-    - "/local  query string" -> (cleaned_query, SearchMode.local, False, None)
+    示例:
+    - "/local[使用mermaid格式绘制图表] 查询字符串" -> (cleaned_query, SearchMode.local, False, "使用mermaid格式绘制图表")
+    - "/[使用mermaid格式绘制图表] 查询字符串" -> (cleaned_query, SearchMode.hybrid, False, "使用mermaid格式绘制图表")
+    - "/local  查询字符串" -> (cleaned_query, SearchMode.local, False, None)
     """
-    # Initialize user_prompt as None
+    # 初始化user_prompt为None
     user_prompt = None
 
-    # First check if there's a bracket format for user prompt
+    # 首先检查是否有方括号格式的用户提示
     bracket_pattern = r"^/([a-z]*)\[(.*?)\](.*)"
     bracket_match = re.match(bracket_pattern, query)
 
@@ -183,16 +195,16 @@ def parse_query_mode(query: str) -> tuple[str, SearchMode, bool, Optional[str]]:
         user_prompt = bracket_match.group(2)
         remaining_query = bracket_match.group(3).lstrip()
 
-        # Reconstruct query, removing the bracket part
+        # 重新构造查询，移除方括号部分
         query = f"/{mode_prefix} {remaining_query}".strip()
 
-    # Unified handling of mode and only_need_context determination
+    # 统一处理模式和only_need_context的确定
     mode_map = {
         "/local ": (SearchMode.local, False),
         "/global ": (
             SearchMode.global_,
             False,
-        ),  # global_ is used because 'global' is a Python keyword
+        ),  # global_被使用是因为'global'是Python关键字
         "/naive ": (SearchMode.naive, False),
         "/hybrid ": (SearchMode.hybrid, False),
         "/mix ": (SearchMode.mix, False),
@@ -210,7 +222,7 @@ def parse_query_mode(query: str) -> tuple[str, SearchMode, bool, Optional[str]]:
 
     for prefix, (mode, only_need_context) in mode_map.items():
         if query.startswith(prefix):
-            # After removing prefix and leading spaces
+            # 移除前缀和前导空格后
             cleaned_query = query[len(prefix) :].lstrip()
             return cleaned_query, mode, only_need_context, user_prompt
 
@@ -223,21 +235,21 @@ class OllamaAPI:
         self.ollama_server_infos = rag.ollama_server_infos
         self.top_k = top_k
         self.api_key = api_key
-        self.router = APIRouter(tags=["ollama"])
+        self.router = APIRouter(tags=["Ollama兼容接口"])
         self.setup_routes()
 
     def setup_routes(self):
-        # Create combined auth dependency for Ollama API routes
+        # 为Ollama API路由创建组合认证依赖
         combined_auth = get_combined_auth_dependency(self.api_key)
 
         @self.router.get("/version", dependencies=[Depends(combined_auth)])
         async def get_version():
-            """Get Ollama version information"""
+            """获取Ollama版本信息"""
             return OllamaVersionResponse(version="0.9.3")
 
         @self.router.get("/tags", dependencies=[Depends(combined_auth)])
         async def get_tags():
-            """Return available models acting as an Ollama server"""
+            """返回可用模型，充当Ollama服务器"""
             return OllamaTagResponse(
                 models=[
                     {
@@ -260,7 +272,7 @@ class OllamaAPI:
 
         @self.router.get("/ps", dependencies=[Depends(combined_auth)])
         async def get_running_models():
-            """List Running Models - returns currently running models"""
+            """列出运行中的模型 - 返回当前运行的模型"""
             return OllamaPsResponse(
                 models=[
                     {
@@ -286,13 +298,13 @@ class OllamaAPI:
             "/generate", dependencies=[Depends(combined_auth)], include_in_schema=True
         )
         async def generate(raw_request: Request):
-            """Handle generate completion requests acting as an Ollama model
-            For compatibility purpose, the request is not processed by LightRAG,
-            and will be handled by underlying LLM model.
-            Supports both application/json and application/octet-stream Content-Types.
+            """处理生成完成请求，充当Ollama模型
+            为了兼容性目的，请求不会由LightRAG处理，
+            并将由底层LLM模型处理。
+            支持application/json和application/octet-stream内容类型。
             """
             try:
-                # Parse the request body manually
+                # 手动解析请求体
                 request = await parse_request_body(raw_request, OllamaGenerateRequest)
 
                 query = request.prompt
@@ -312,9 +324,9 @@ class OllamaAPI:
                         last_chunk_time = time.time_ns()
                         total_response = ""
 
-                        # Ensure response is an async generator
+                        # 确保响应是一个异步生成器
                         if isinstance(response, str):
-                            # If it's a string, send in two parts
+                            # 如果是字符串，则分两部分发送
                             first_chunk_time = start_time
                             last_chunk_time = time.time_ns()
                             total_response = response
@@ -367,23 +379,23 @@ class OllamaAPI:
                             except (asyncio.CancelledError, Exception) as e:
                                 error_msg = str(e)
                                 if isinstance(e, asyncio.CancelledError):
-                                    error_msg = "Stream was cancelled by server"
+                                    error_msg = "流被服务器取消"
                                 else:
-                                    error_msg = f"Provider error: {error_msg}"
+                                    error_msg = f"提供程序错误: {error_msg}"
 
-                                logger.error(f"Stream error: {error_msg}")
+                                logger.error(f"流错误: {error_msg}")
 
-                                # Send error message to client
+                                # 向客户端发送错误消息
                                 error_data = {
                                     "model": self.ollama_server_infos.LIGHTRAG_MODEL,
                                     "created_at": self.ollama_server_infos.LIGHTRAG_CREATED_AT,
-                                    "response": f"\n\nError: {error_msg}",
-                                    "error": f"\n\nError: {error_msg}",
+                                    "response": f"\n\n错误: {error_msg}",
+                                    "error": f"\n\n错误: {error_msg}",
                                     "done": False,
                                 }
                                 yield f"{json.dumps(error_data, ensure_ascii=False)}\n"
 
-                                # Send final message to close the stream
+                                # 发送最终消息以关闭流
                                 final_data = {
                                     "model": self.ollama_server_infos.LIGHTRAG_MODEL,
                                     "created_at": self.ollama_server_infos.LIGHTRAG_CREATED_AT,
@@ -423,7 +435,7 @@ class OllamaAPI:
                             "Cache-Control": "no-cache",
                             "Connection": "keep-alive",
                             "Content-Type": "application/x-ndjson",
-                            "X-Accel-Buffering": "no",  # Ensure proper handling of streaming responses in Nginx proxy
+                            "X-Accel-Buffering": "no",  # 确保Nginx代理中正确处理流式响应
                         },
                     )
                 else:
@@ -434,7 +446,7 @@ class OllamaAPI:
                     last_chunk_time = time.time_ns()
 
                     if not response_text:
-                        response_text = "No response generated"
+                        response_text = "未生成响应"
 
                     completion_tokens = estimate_tokens(str(response_text))
                     total_time = last_chunk_time - start_time
@@ -456,41 +468,41 @@ class OllamaAPI:
                         "eval_duration": eval_time,
                     }
             except Exception as e:
-                logger.error(f"Ollama generate error: {str(e)}", exc_info=True)
+                logger.error(f"Ollama生成错误: {str(e)}", exc_info=True)
                 raise HTTPException(status_code=500, detail=str(e))
 
         @self.router.post(
             "/chat", dependencies=[Depends(combined_auth)], include_in_schema=True
         )
         async def chat(raw_request: Request):
-            """Process chat completion requests by acting as an Ollama model.
-            Routes user queries through LightRAG by selecting query mode based on query prefix.
-            Detects and forwards OpenWebUI session-related requests (for meta data generation task) directly to LLM.
-            Supports both application/json and application/octet-stream Content-Types.
+            """通过充当Ollama模型来处理聊天完成请求。
+            通过基于查询前缀选择查询模式，将用户查询路由到LightRAG。
+            检测并直接转发OpenWebUI会话相关请求（用于元数据生成任务）到LLM。
+            支持application/json和application/octet-stream内容类型。
             """
             try:
-                # Parse the request body manually
+                # 手动解析请求体
                 request = await parse_request_body(raw_request, OllamaChatRequest)
 
-                # Get all messages
+                # 获取所有消息
                 messages = request.messages
                 if not messages:
-                    raise HTTPException(status_code=400, detail="No messages provided")
+                    raise HTTPException(status_code=400, detail="未提供消息")
 
-                # Validate that the last message is from a user
+                # 验证最后一条消息来自用户
                 if messages[-1].role != "user":
                     raise HTTPException(
-                        status_code=400, detail="Last message must be from user role"
+                        status_code=400, detail="最后一条消息必须来自用户角色"
                     )
 
-                # Get the last message as query and previous messages as history
+                # 将最后一条消息作为查询，之前的消息作为历史记录
                 query = messages[-1].content
-                # Convert OllamaMessage objects to dictionaries
+                # 将OllamaMessage对象转换为字典
                 conversation_history = [
                     {"role": msg.role, "content": msg.content} for msg in messages[:-1]
                 ]
 
-                # Check for query prefix
+                # 检查查询前缀
                 cleaned_query, mode, only_need_context, user_prompt = parse_query_mode(
                     query
                 )
@@ -506,14 +518,14 @@ class OllamaAPI:
                     "top_k": self.top_k,
                 }
 
-                # Add user_prompt to param_dict
+                # 添加user_prompt到param_dict
                 if user_prompt is not None:
                     param_dict["user_prompt"] = user_prompt
 
                 query_param = QueryParam(**param_dict)
 
                 if request.stream:
-                    # Determine if the request is prefix with "/bypass"
+                    # 确定请求是否以前缀"/bypass"开头
                     if mode == SearchMode.bypass:
                         if request.system:
                             self.rag.llm_model_kwargs["system_prompt"] = request.system
@@ -533,9 +545,9 @@ class OllamaAPI:
                         last_chunk_time = time.time_ns()
                         total_response = ""
 
-                        # Ensure response is an async generator
+                        # 确保响应是一个异步生成器
                         if isinstance(response, str):
-                            # If it's a string, send in two parts
+                            # 如果是字符串，则分两部分发送
                             first_chunk_time = start_time
                             last_chunk_time = time.time_ns()
                             total_response = response
@@ -599,27 +611,27 @@ class OllamaAPI:
                             except (asyncio.CancelledError, Exception) as e:
                                 error_msg = str(e)
                                 if isinstance(e, asyncio.CancelledError):
-                                    error_msg = "Stream was cancelled by server"
+                                    error_msg = "流被服务器取消"
                                 else:
-                                    error_msg = f"Provider error: {error_msg}"
+                                    error_msg = f"提供程序错误: {error_msg}"
 
-                                logger.error(f"Stream error: {error_msg}")
+                                logger.error(f"流错误: {error_msg}")
 
-                                # Send error message to client
+                                # 向客户端发送错误消息
                                 error_data = {
                                     "model": self.ollama_server_infos.LIGHTRAG_MODEL,
                                     "created_at": self.ollama_server_infos.LIGHTRAG_CREATED_AT,
                                     "message": {
                                         "role": "assistant",
-                                        "content": f"\n\nError: {error_msg}",
+                                        "content": f"\n\n错误: {error_msg}",
                                         "images": None,
                                     },
-                                    "error": f"\n\nError: {error_msg}",
+                                    "error": f"\n\n错误: {error_msg}",
                                     "done": False,
                                 }
                                 yield f"{json.dumps(error_data, ensure_ascii=False)}\n"
 
-                                # Send final message to close the stream
+                                # 发送最终消息以关闭流
                                 final_data = {
                                     "model": self.ollama_server_infos.LIGHTRAG_MODEL,
                                     "created_at": self.ollama_server_infos.LIGHTRAG_CREATED_AT,
@@ -666,13 +678,13 @@ class OllamaAPI:
                             "Cache-Control": "no-cache",
                             "Connection": "keep-alive",
                             "Content-Type": "application/x-ndjson",
-                            "X-Accel-Buffering": "no",  # Ensure proper handling of streaming responses in Nginx proxy
+                            "X-Accel-Buffering": "no",  # 确保Nginx代理中正确处理流式响应
                         },
                     )
                 else:
                     first_chunk_time = time.time_ns()
 
-                    # Determine if the request is prefix with "/bypass" or from Open WebUI's session title and session keyword generation task
+                    # 确定请求是否以前缀"/bypass"开头或来自Open WebUI的会话标题和会话关键词生成任务
                     match_result = re.search(
                         r"\n<chat_history>\nUSER:", cleaned_query, re.MULTILINE
                     )
@@ -694,7 +706,7 @@ class OllamaAPI:
                     last_chunk_time = time.time_ns()
 
                     if not response_text:
-                        response_text = "No response generated"
+                        response_text = "未生成响应"
 
                     completion_tokens = estimate_tokens(str(response_text))
                     total_time = last_chunk_time - start_time
@@ -719,5 +731,5 @@ class OllamaAPI:
                         "eval_duration": eval_time,
                     }
             except Exception as e:
-                logger.error(f"Ollama chat error: {str(e)}", exc_info=True)
+                logger.error(f"Ollama聊天错误: {str(e)}", exc_info=True)
                 raise HTTPException(status_code=500, detail=str(e))

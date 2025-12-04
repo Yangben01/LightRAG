@@ -16,98 +16,98 @@ router = APIRouter(tags=["query"])
 class QueryRequest(BaseModel):
     query: str = Field(
         min_length=3,
-        description="The query text",
+        description="查询文本",
     )
 
     mode: Literal["local", "global", "hybrid", "naive", "mix", "bypass"] = Field(
         default="mix",
-        description="Query mode",
+        description="查询模式",
     )
 
     only_need_context: Optional[bool] = Field(
         default=None,
-        description="If True, only returns the retrieved context without generating a response.",
+        description="如果为True，则只返回检索到的上下文而不生成响应。",
     )
 
     only_need_prompt: Optional[bool] = Field(
         default=None,
-        description="If True, only returns the generated prompt without producing a response.",
+        description="如果为True，则只返回生成的提示而不产生响应。",
     )
 
     response_type: Optional[str] = Field(
         min_length=1,
         default=None,
-        description="Defines the response format. Examples: 'Multiple Paragraphs', 'Single Paragraph', 'Bullet Points'.",
+        description="定义响应格式。示例: '多个段落', '单个段落', '要点'。",
     )
 
     top_k: Optional[int] = Field(
         ge=1,
         default=None,
-        description="Number of top items to retrieve. Represents entities in 'local' mode and relationships in 'global' mode.",
+        description="要检索的顶级项目数。在'local'模式中表示实体，在'global'模式中表示关系。",
     )
 
     chunk_top_k: Optional[int] = Field(
         ge=1,
         default=None,
-        description="Number of text chunks to retrieve initially from vector search and keep after reranking.",
+        description="最初从向量搜索中检索的文本块数量以及重新排序后保留的数量。",
     )
 
     max_entity_tokens: Optional[int] = Field(
         default=None,
-        description="Maximum number of tokens allocated for entity context in unified token control system.",
+        description="在统一代币控制系统中为实体上下文分配的最大代币数。",
         ge=1,
     )
 
     max_relation_tokens: Optional[int] = Field(
         default=None,
-        description="Maximum number of tokens allocated for relationship context in unified token control system.",
+        description="在统一代币控制系统中为关系上下文分配的最大代币数。",
         ge=1,
     )
 
     max_total_tokens: Optional[int] = Field(
         default=None,
-        description="Maximum total tokens budget for the entire query context (entities + relations + chunks + system prompt).",
+        description="整个查询上下文（实体+关系+块+系统提示）的最大总代币预算。",
         ge=1,
     )
 
     hl_keywords: list[str] = Field(
         default_factory=list,
-        description="List of high-level keywords to prioritize in retrieval. Leave empty to use the LLM to generate the keywords.",
+        description="在检索中优先考虑的高级关键词列表。留空让LLM生成关键词。",
     )
 
     ll_keywords: list[str] = Field(
         default_factory=list,
-        description="List of low-level keywords to refine retrieval focus. Leave empty to use the LLM to generate the keywords.",
+        description="细化检索焦点的低级关键词列表。留空让LLM生成关键词。",
     )
 
     conversation_history: Optional[List[Dict[str, Any]]] = Field(
         default=None,
-        description="Stores past conversation history to maintain context. Format: [{'role': 'user/assistant', 'content': 'message'}].",
+        description="存储过去的对话历史以保持上下文。格式: [{'role': 'user/assistant', 'content': 'message'}]。",
     )
 
     user_prompt: Optional[str] = Field(
         default=None,
-        description="User-provided prompt for the query. If provided, this will be used instead of the default value from prompt template.",
+        description="用户提供的查询提示。如果提供，将使用此提示而不是提示模板中的默认值。",
     )
 
     enable_rerank: Optional[bool] = Field(
         default=None,
-        description="Enable reranking for retrieved text chunks. If True but no rerank model is configured, a warning will be issued. Default is True.",
+        description="启用重新排序检索到的文本块。如果为True但未配置重新排序模型，将发出警告。默认为True。",
     )
 
     include_references: Optional[bool] = Field(
         default=True,
-        description="If True, includes reference list in responses. Affects /query and /query/stream endpoints. /query/data always includes references.",
+        description="如果为True，则在响应中包含参考文献列表。影响/query和/query/stream端点。/query/data总是包含参考文献。",
     )
 
     include_chunk_content: Optional[bool] = Field(
         default=False,
-        description="If True, includes actual chunk text content in references. Only applies when include_references=True. Useful for evaluation and debugging.",
+        description="如果为True，则在参考文献中包含实际的块文本内容。仅在include_references=True时适用。适用于评估和调试。",
     )
 
     stream: Optional[bool] = Field(
         default=True,
-        description="If True, enables streaming output for real-time responses. Only affects /query/stream endpoint.",
+        description="如果为True，则启用流式输出以实现实时响应。仅影响/query/stream端点。",
     )
 
     @field_validator("query", mode="after")
@@ -144,49 +144,49 @@ class QueryRequest(BaseModel):
 
 
 class ReferenceItem(BaseModel):
-    """A single reference item in query responses."""
+    """查询响应中的单个参考项。"""
 
-    reference_id: str = Field(description="Unique reference identifier")
-    file_path: str = Field(description="Path to the source file")
+    reference_id: str = Field(description="唯一的参考标识符")
+    file_path: str = Field(description="源文件路径")
     content: Optional[List[str]] = Field(
         default=None,
-        description="List of chunk contents from this file (only present when include_chunk_content=True)",
+        description="来自此文件的块内容列表（仅在include_chunk_content=True时存在）",
     )
 
 
 class QueryResponse(BaseModel):
     response: str = Field(
-        description="The generated response",
+        description="生成的响应",
     )
     references: Optional[List[ReferenceItem]] = Field(
         default=None,
-        description="Reference list (Disabled when include_references=False, /query/data always includes references.)",
+        description="参考文献列表（当include_references=False时禁用，/query/data总是包含参考文献。）",
     )
 
 
 class QueryDataResponse(BaseModel):
-    status: str = Field(description="Query execution status")
-    message: str = Field(description="Status message")
+    status: str = Field(description="查询执行状态")
+    message: str = Field(description="状态消息")
     data: Dict[str, Any] = Field(
-        description="Query result data containing entities, relationships, chunks, and references"
+        description="包含实体、关系、块和参考文献的查询结果数据"
     )
     metadata: Dict[str, Any] = Field(
-        description="Query metadata including mode, keywords, and processing information"
+        description="包含模式、关键字和处理信息的查询元数据"
     )
 
 
 class StreamChunkResponse(BaseModel):
-    """Response model for streaming chunks in NDJSON format"""
+    """NDJSON格式的流式块响应模型"""
 
     references: Optional[List[Dict[str, str]]] = Field(
         default=None,
-        description="Reference list (only in first chunk when include_references=True)",
+        description="参考文献列表（仅在include_references=True时的第一个块中）",
     )
     response: Optional[str] = Field(
-        default=None, description="Response content chunk or complete response"
+        default=None, description="响应内容块或完整响应"
     )
     error: Optional[str] = Field(
-        default=None, description="Error message if processing fails"
+        default=None, description="处理失败时的错误消息"
     )
 
 
@@ -199,7 +199,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
         dependencies=[Depends(combined_auth)],
         responses={
             200: {
-                "description": "Successful RAG query response",
+                "description": "成功的RAG查询响应",
                 "content": {
                     "application/json": {
                         "schema": {
@@ -207,7 +207,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                             "properties": {
                                 "response": {
                                     "type": "string",
-                                    "description": "The generated response from the RAG system",
+                                    "description": "来自RAG系统的生成响应",
                                 },
                                 "references": {
                                     "type": "array",
@@ -219,21 +219,21 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                             "content": {
                                                 "type": "array",
                                                 "items": {"type": "string"},
-                                                "description": "List of chunk contents from this file (only included when include_chunk_content=True)",
+                                                "description": "来自此文件的块内容列表（仅在include_chunk_content=True时包含）",
                                             },
                                         },
                                     },
-                                    "description": "Reference list (only included when include_references=True)",
+                                    "description": "参考文献列表（仅在include_references=True时包含）",
                                 },
                             },
                             "required": ["response"],
                         },
                         "examples": {
                             "with_references": {
-                                "summary": "Response with references",
-                                "description": "Example response when include_references=True",
+                                "summary": "带参考文献的响应",
+                                "description": "include_references=True时的响应示例",
                                 "value": {
-                                    "response": "Artificial Intelligence (AI) is a branch of computer science that aims to create intelligent machines capable of performing tasks that typically require human intelligence, such as learning, reasoning, and problem-solving.",
+                                    "response": "人工智能（AI）是计算机科学的一个分支，旨在创造能够执行通常需要人类智能的任务的智能机器，如学习、推理和解决问题。",
                                     "references": [
                                         {
                                             "reference_id": "1",
@@ -247,45 +247,45 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                 },
                             },
                             "with_chunk_content": {
-                                "summary": "Response with chunk content",
-                                "description": "Example response when include_references=True and include_chunk_content=True. Note: content is an array of chunks from the same file.",
+                                "summary": "带块内容的响应",
+                                "description": "include_references=True且include_chunk_content=True时的响应示例。注意：内容是同一文件的块数组。",
                                 "value": {
-                                    "response": "Artificial Intelligence (AI) is a branch of computer science that aims to create intelligent machines capable of performing tasks that typically require human intelligence, such as learning, reasoning, and problem-solving.",
+                                    "response": "人工智能（AI）是计算机科学的一个分支，旨在创造能够执行通常需要人类智能的任务的智能机器，如学习、推理和解决问题。",
                                     "references": [
                                         {
                                             "reference_id": "1",
                                             "file_path": "/documents/ai_overview.pdf",
                                             "content": [
-                                                "Artificial Intelligence (AI) represents a transformative field in computer science focused on creating systems that can perform tasks requiring human-like intelligence. These tasks include learning from experience, understanding natural language, recognizing patterns, and making decisions.",
-                                                "AI systems can be categorized into narrow AI, which is designed for specific tasks, and general AI, which aims to match human cognitive abilities across a wide range of domains.",
+                                                "人工智能（AI）是计算机科学中一个变革性的领域，专注于创建能够执行需要类似人类智能任务的系统。这些任务包括从经验中学习、理解自然语言、识别模式和做出决策。",
+                                                "AI系统可以分为窄AI（为特定任务设计）和通用AI（旨在匹配人类在广泛领域的认知能力）。",
                                             ],
                                         },
                                         {
                                             "reference_id": "2",
                                             "file_path": "/documents/machine_learning.txt",
                                             "content": [
-                                                "Machine learning is a subset of AI that enables computers to learn and improve from experience without being explicitly programmed. It focuses on the development of algorithms that can access data and use it to learn for themselves."
+                                                "机器学习是AI的一个子集，使计算机能够从经验中学习和改进，而无需明确编程。它专注于开发能够访问数据并使用数据进行自我学习的算法。"
                                             ],
                                         },
                                     ],
                                 },
                             },
                             "without_references": {
-                                "summary": "Response without references",
-                                "description": "Example response when include_references=False",
+                                "summary": "不带参考文献的响应",
+                                "description": "include_references=False时的响应示例",
                                 "value": {
-                                    "response": "Artificial Intelligence (AI) is a branch of computer science that aims to create intelligent machines capable of performing tasks that typically require human intelligence, such as learning, reasoning, and problem-solving."
+                                    "response": "人工智能（AI）是计算机科学的一个分支，旨在创造能够执行通常需要人类智能的任务的智能机器，如学习、推理和解决问题。"
                                 },
                             },
                             "different_modes": {
-                                "summary": "Different query modes",
-                                "description": "Examples of responses from different query modes",
+                                "summary": "不同的查询模式",
+                                "description": "不同查询模式的响应示例",
                                 "value": {
-                                    "local_mode": "Focuses on specific entities and their relationships",
-                                    "global_mode": "Provides broader context from relationship patterns",
-                                    "hybrid_mode": "Combines local and global approaches",
-                                    "naive_mode": "Simple vector similarity search",
-                                    "mix_mode": "Integrates knowledge graph and vector retrieval",
+                                    "local_mode": "关注特定实体及其关系",
+                                    "global_mode": "提供来自关系模式的更广泛上下文",
+                                    "hybrid_mode": "结合本地和全局方法",
+                                    "naive_mode": "简单的向量相似性搜索",
+                                    "mix_mode": "集成知识图谱和向量检索",
                                 },
                             },
                         },
@@ -293,7 +293,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                 },
             },
             400: {
-                "description": "Bad Request - Invalid input parameters",
+                "description": "错误请求 - 无效的输入参数",
                 "content": {
                     "application/json": {
                         "schema": {
@@ -301,13 +301,13 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                             "properties": {"detail": {"type": "string"}},
                         },
                         "example": {
-                            "detail": "Query text must be at least 3 characters long"
+                            "detail": "查询文本长度必须至少为3个字符"
                         },
                     }
                 },
             },
             500: {
-                "description": "Internal Server Error - Query processing failed",
+                "description": "内部服务器错误 - 查询处理失败",
                 "content": {
                     "application/json": {
                         "schema": {
@@ -315,7 +315,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                             "properties": {"detail": {"type": "string"}},
                         },
                         "example": {
-                            "detail": "Failed to process query: LLM service unavailable"
+                            "detail": "处理查询失败：LLM服务不可用"
                         },
                     }
                 },
@@ -458,52 +458,52 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
         dependencies=[Depends(combined_auth)],
         responses={
             200: {
-                "description": "Flexible RAG query response - format depends on stream parameter",
+                "description": "灵活的RAG查询响应 - 格式取决于流参数",
                 "content": {
                     "application/x-ndjson": {
                         "schema": {
                             "type": "string",
                             "format": "ndjson",
-                            "description": "Newline-delimited JSON (NDJSON) format used for both streaming and non-streaming responses. For streaming: multiple lines with separate JSON objects. For non-streaming: single line with complete JSON object.",
-                            "example": '{"references": [{"reference_id": "1", "file_path": "/documents/ai.pdf"}]}\n{"response": "Artificial Intelligence is"}\n{"response": " a field of computer science"}\n{"response": " that focuses on creating intelligent machines."}',
+                            "description": "用于流式和非流式响应的换行分隔JSON（NDJSON）格式。对于流式：多行包含独立的JSON对象。对于非流式：单行包含完整的JSON对象。",
+                            "example": '{"references": [{"reference_id": "1", "file_path": "/documents/ai.pdf"}]}\n{"response": "人工智能是"}\n{"response": " 计算机科学的一个领域"}\n{"response": " 专注于创造智能机器。"}',
                         },
                         "examples": {
                             "streaming_with_references": {
-                                "summary": "Streaming mode with references (stream=true)",
-                                "description": "Multiple NDJSON lines when stream=True and include_references=True. First line contains references, subsequent lines contain response chunks.",
-                                "value": '{"references": [{"reference_id": "1", "file_path": "/documents/ai_overview.pdf"}, {"reference_id": "2", "file_path": "/documents/ml_basics.txt"}]}\n{"response": "Artificial Intelligence (AI) is a branch of computer science"}\n{"response": " that aims to create intelligent machines capable of performing"}\n{"response": " tasks that typically require human intelligence, such as learning,"}\n{"response": " reasoning, and problem-solving."}',
+                                "summary": "带参考文献的流式模式（stream=true）",
+                                "description": "当stream=True且include_references=True时的多个NDJSON行。第一行包含参考文献，后续行包含响应块。",
+                                "value": '{"references": [{"reference_id": "1", "file_path": "/documents/ai_overview.pdf"}, {"reference_id": "2", "file_path": "/documents/ml_basics.txt"}]}\n{"response": "人工智能（AI）是计算机科学的一个分支"}\n{"response": " 旨在创造能够执行智能机器"}\n{"response": " 通常需要人类智能的任务，如学习，"}\n{"response": " 推理和解决问题。"}',
                             },
                             "streaming_with_chunk_content": {
-                                "summary": "Streaming mode with chunk content (stream=true, include_chunk_content=true)",
-                                "description": "Multiple NDJSON lines when stream=True, include_references=True, and include_chunk_content=True. First line contains references with content arrays (one file may have multiple chunks), subsequent lines contain response chunks.",
-                                "value": '{"references": [{"reference_id": "1", "file_path": "/documents/ai_overview.pdf", "content": ["Artificial Intelligence (AI) represents a transformative field...", "AI systems can be categorized into narrow AI and general AI..."]}, {"reference_id": "2", "file_path": "/documents/ml_basics.txt", "content": ["Machine learning is a subset of AI that enables computers to learn..."]}]}\n{"response": "Artificial Intelligence (AI) is a branch of computer science"}\n{"response": " that aims to create intelligent machines capable of performing"}\n{"response": " tasks that typically require human intelligence."}',
+                                "summary": "带块内容的流式模式（stream=true, include_chunk_content=true）",
+                                "description": "当stream=True、include_references=True且include_chunk_content=True时的多个NDJSON行。第一行包含带有内容数组的参考文献（一个文件可能有多个块），后续行包含响应块。",
+                                "value": '{"references": [{"reference_id": "1", "file_path": "/documents/ai_overview.pdf", "content": ["人工智能（AI）是一个变革性领域...", "AI系统可分为窄AI和通用AI..."]}, {"reference_id": "2", "file_path": "/documents/ml_basics.txt", "content": ["机器学习是AI的一个子集，使计算机能够学习..."]}]}\n{"response": "人工智能（AI）是计算机科学的一个分支"}\n{"response": " 旨在创造能够执行智能机器"}\n{"response": " 通常需要人类智能的任务。"}',
                             },
                             "streaming_without_references": {
-                                "summary": "Streaming mode without references (stream=true)",
-                                "description": "Multiple NDJSON lines when stream=True and include_references=False. Only response chunks are sent.",
-                                "value": '{"response": "Machine learning is a subset of artificial intelligence"}\n{"response": " that enables computers to learn and improve from experience"}\n{"response": " without being explicitly programmed for every task."}',
+                                "summary": "不带参考文献的流式模式（stream=true）",
+                                "description": "当stream=True且include_references=False时的多个NDJSON行。只发送响应块。",
+                                "value": '{"response": "机器学习是人工智能的一个子集"}\n{"response": " 使计算机能够从经验中学习和改进"}\n{"response": " 而无需为每个任务明确编程。"}',
                             },
                             "non_streaming_with_references": {
-                                "summary": "Non-streaming mode with references (stream=false)",
-                                "description": "Single NDJSON line when stream=False and include_references=True. Complete response with references in one message.",
-                                "value": '{"references": [{"reference_id": "1", "file_path": "/documents/neural_networks.pdf"}], "response": "Neural networks are computational models inspired by biological neural networks that consist of interconnected nodes (neurons) organized in layers. They are fundamental to deep learning and can learn complex patterns from data through training processes."}',
+                                "summary": "带参考文献的非流式模式（stream=false）",
+                                "description": "当stream=False且include_references=True时的单个NDJSON行。一条消息中包含完整响应和参考文献。",
+                                "value": '{"references": [{"reference_id": "1", "file_path": "/documents/neural_networks.pdf"}], "response": "神经网络是受生物神经网络启发的计算模型，由互连的节点（神经元）组成，按层组织。它们是深度学习的基础，可以通过训练过程从数据中学习复杂的模式。"}',
                             },
                             "non_streaming_without_references": {
-                                "summary": "Non-streaming mode without references (stream=false)",
-                                "description": "Single NDJSON line when stream=False and include_references=False. Complete response only.",
-                                "value": '{"response": "Deep learning is a subset of machine learning that uses neural networks with multiple layers (hence deep) to model and understand complex patterns in data. It has revolutionized fields like computer vision, natural language processing, and speech recognition."}',
+                                "summary": "不带参考文献的非流式模式（stream=false）",
+                                "description": "当stream=False且include_references=False时的单个NDJSON行。仅包含完整响应。",
+                                "value": '{"response": "深度学习是机器学习的一个子集，使用具有多层的神经网络（因此称为深度）来建模和理解数据中的复杂模式。它已经彻底改变了计算机视觉、自然语言处理和语音识别等领域。"}',
                             },
                             "error_response": {
-                                "summary": "Error during streaming",
-                                "description": "Error handling in NDJSON format when an error occurs during processing.",
-                                "value": '{"references": [{"reference_id": "1", "file_path": "/documents/ai.pdf"}]}\n{"response": "Artificial Intelligence is"}\n{"error": "LLM service temporarily unavailable"}',
+                                "summary": "流式处理期间的错误",
+                                "description": "处理过程中发生错误时的NDJSON格式错误处理。",
+                                "value": '{"references": [{"reference_id": "1", "file_path": "/documents/ai.pdf"}]}\n{"response": "人工智能是"}\n{"error": "LLM服务暂时不可用"}',
                             },
                         },
                     }
                 },
             },
             400: {
-                "description": "Bad Request - Invalid input parameters",
+                "description": "错误请求 - 无效的输入参数",
                 "content": {
                     "application/json": {
                         "schema": {
@@ -511,13 +511,13 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                             "properties": {"detail": {"type": "string"}},
                         },
                         "example": {
-                            "detail": "Query text must be at least 3 characters long"
+                            "detail": "查询文本长度必须至少为3个字符"
                         },
                     }
                 },
             },
             500: {
-                "description": "Internal Server Error - Query processing failed",
+                "description": "内部服务器错误 - 查询处理失败",
                 "content": {
                     "application/json": {
                         "schema": {
@@ -525,7 +525,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                             "properties": {"detail": {"type": "string"}},
                         },
                         "example": {
-                            "detail": "Failed to process streaming query: Knowledge graph unavailable"
+                            "detail": "处理流式查询失败：知识图谱不可用"
                         },
                     }
                 },
@@ -745,7 +745,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
         dependencies=[Depends(combined_auth)],
         responses={
             200: {
-                "description": "Successful data retrieval response with structured RAG data",
+                "description": "成功的数据检索响应，包含结构化的RAG数据",
                 "content": {
                     "application/json": {
                         "schema": {
@@ -754,11 +754,11 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                 "status": {
                                     "type": "string",
                                     "enum": ["success", "failure"],
-                                    "description": "Query execution status",
+                                    "description": "查询执行状态",
                                 },
                                 "message": {
                                     "type": "string",
-                                    "description": "Status message describing the result",
+                                    "description": "描述结果的状态消息",
                                 },
                                 "data": {
                                     "type": "object",
@@ -776,7 +776,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                                     "reference_id": {"type": "string"},
                                                 },
                                             },
-                                            "description": "Retrieved entities from knowledge graph",
+                                            "description": "从知识图谱检索的实体",
                                         },
                                         "relationships": {
                                             "type": "array",
@@ -793,7 +793,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                                     "reference_id": {"type": "string"},
                                                 },
                                             },
-                                            "description": "Retrieved relationships from knowledge graph",
+                                            "description": "从知识图谱检索的关系",
                                         },
                                         "chunks": {
                                             "type": "array",
@@ -806,7 +806,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                                     "reference_id": {"type": "string"},
                                                 },
                                             },
-                                            "description": "Retrieved text chunks from vector database",
+                                            "description": "从向量数据库检索的文本块",
                                         },
                                         "references": {
                                             "type": "array",
@@ -817,10 +817,10 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                                     "file_path": {"type": "string"},
                                                 },
                                             },
-                                            "description": "Reference list for citation purposes",
+                                            "description": "用于引用目的的参考文献列表",
                                         },
                                     },
-                                    "description": "Structured retrieval data containing entities, relationships, chunks, and references",
+                                    "description": "包含实体、关系、块和参考文献的结构化检索数据",
                                 },
                                 "metadata": {
                                     "type": "object",
@@ -860,24 +860,24 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                             },
                                         },
                                     },
-                                    "description": "Query metadata including mode, keywords, and processing information",
+                                    "description": "包含模式、关键字和处理信息的查询元数据",
                                 },
                             },
                             "required": ["status", "message", "data", "metadata"],
                         },
                         "examples": {
                             "successful_local_mode": {
-                                "summary": "Local mode data retrieval",
-                                "description": "Example of structured data from local mode query focusing on specific entities",
+                                "summary": "本地模式数据检索",
+                                "description": "专注于特定实体的本地模式查询的结构化数据示例",
                                 "value": {
                                     "status": "success",
-                                    "message": "Query executed successfully",
+                                    "message": "查询执行成功",
                                     "data": {
                                         "entities": [
                                             {
-                                                "entity_name": "Neural Networks",
-                                                "entity_type": "CONCEPT",
-                                                "description": "Computational models inspired by biological neural networks",
+                                                "entity_name": "神经网络",
+                                                "entity_type": "概念",
+                                                "description": "受生物神经网络启发的计算模型",
                                                 "source_id": "chunk-123",
                                                 "file_path": "/documents/ai_basics.pdf",
                                                 "reference_id": "1",
@@ -885,10 +885,10 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                         ],
                                         "relationships": [
                                             {
-                                                "src_id": "Neural Networks",
-                                                "tgt_id": "Machine Learning",
-                                                "description": "Neural networks are a subset of machine learning algorithms",
-                                                "keywords": "subset, algorithm, learning",
+                                                "src_id": "神经网络",
+                                                "tgt_id": "机器学习",
+                                                "description": "神经网络是机器学习算法的一个子集",
+                                                "keywords": "子集, 算法, 学习",
                                                 "weight": 0.85,
                                                 "source_id": "chunk-123",
                                                 "file_path": "/documents/ai_basics.pdf",
@@ -897,7 +897,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                         ],
                                         "chunks": [
                                             {
-                                                "content": "Neural networks are computational models that mimic the way biological neural networks work...",
+                                                "content": "神经网络是模仿生物神经网络工作方式的计算模型...",
                                                 "file_path": "/documents/ai_basics.pdf",
                                                 "chunk_id": "chunk-123",
                                                 "reference_id": "1",
@@ -913,11 +913,11 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                     "metadata": {
                                         "query_mode": "local",
                                         "keywords": {
-                                            "high_level": ["neural", "networks"],
+                                            "high_level": ["神经", "网络"],
                                             "low_level": [
-                                                "computation",
-                                                "model",
-                                                "algorithm",
+                                                "计算",
+                                                "模型",
+                                                "算法",
                                             ],
                                         },
                                         "processing_info": {
@@ -931,19 +931,19 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                 },
                             },
                             "global_mode": {
-                                "summary": "Global mode data retrieval",
-                                "description": "Example of structured data from global mode query analyzing broader patterns",
+                                "summary": "全局模式数据检索",
+                                "description": "分析更广泛模式的全局模式查询的结构化数据示例",
                                 "value": {
                                     "status": "success",
-                                    "message": "Query executed successfully",
+                                    "message": "查询执行成功",
                                     "data": {
                                         "entities": [],
                                         "relationships": [
                                             {
-                                                "src_id": "Artificial Intelligence",
-                                                "tgt_id": "Machine Learning",
-                                                "description": "AI encompasses machine learning as a core component",
-                                                "keywords": "encompasses, component, field",
+                                                "src_id": "人工智能",
+                                                "tgt_id": "机器学习",
+                                                "description": "AI将机器学习作为核心组件",
+                                                "keywords": "包含, 组件, 领域",
                                                 "weight": 0.92,
                                                 "source_id": "chunk-456",
                                                 "file_path": "/documents/ai_overview.pdf",
@@ -962,9 +962,9 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                         "query_mode": "global",
                                         "keywords": {
                                             "high_level": [
-                                                "artificial",
-                                                "intelligence",
-                                                "overview",
+                                                "人工",
+                                                "智能",
+                                                "概览",
                                             ],
                                             "low_level": [],
                                         },
@@ -972,17 +972,17 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                                 },
                             },
                             "naive_mode": {
-                                "summary": "Naive mode data retrieval",
-                                "description": "Example of structured data from naive mode using only vector search",
+                                "summary": "朴素模式数据检索",
+                                "description": "仅使用向量搜索的朴素模式查询的结构化数据示例",
                                 "value": {
                                     "status": "success",
-                                    "message": "Query executed successfully",
+                                    "message": "查询执行成功",
                                     "data": {
                                         "entities": [],
                                         "relationships": [],
                                         "chunks": [
                                             {
-                                                "content": "Deep learning is a subset of machine learning that uses neural networks with multiple layers...",
+                                                "content": "深度学习是机器学习的一个子集，使用具有多层的神经网络...",
                                                 "file_path": "/documents/deep_learning.pdf",
                                                 "chunk_id": "chunk-789",
                                                 "reference_id": "3",
@@ -1006,7 +1006,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                 },
             },
             400: {
-                "description": "Bad Request - Invalid input parameters",
+                "description": "错误请求 - 无效的输入参数",
                 "content": {
                     "application/json": {
                         "schema": {
@@ -1014,13 +1014,13 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                             "properties": {"detail": {"type": "string"}},
                         },
                         "example": {
-                            "detail": "Query text must be at least 3 characters long"
+                            "detail": "查询文本长度必须至少为3个字符"
                         },
                     }
                 },
             },
             500: {
-                "description": "Internal Server Error - Data retrieval failed",
+                "description": "内部服务器错误 - 查询处理失败",
                 "content": {
                     "application/json": {
                         "schema": {
@@ -1028,7 +1028,7 @@ def create_query_routes(rag, api_key: Optional[str] = None, top_k: int = 60):
                             "properties": {"detail": {"type": "string"}},
                         },
                         "example": {
-                            "detail": "Failed to retrieve data: Knowledge graph unavailable"
+                            "detail": "处理数据查询失败：知识图谱不可用"
                         },
                     }
                 },

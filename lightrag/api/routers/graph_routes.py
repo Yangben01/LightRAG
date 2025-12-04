@@ -44,17 +44,17 @@ class EntityMergeRequest(BaseModel):
 class EntityCreateRequest(BaseModel):
     entity_name: str = Field(
         ...,
-        description="Unique name for the new entity",
+        description="新实体的唯一名称",
         min_length=1,
-        examples=["Tesla"],
+        examples=["特斯拉"],
     )
     entity_data: Dict[str, Any] = Field(
         ...,
-        description="Dictionary containing entity properties. Common fields include 'description' and 'entity_type'.",
+        description="包含实体属性的字典。常见字段包括'description'和'entity_type'。",
         examples=[
             {
-                "description": "Electric vehicle manufacturer",
-                "entity_type": "ORGANIZATION",
+                "description": "电动汽车制造商",
+                "entity_type": "组织机构",
             }
         ],
     )
@@ -63,23 +63,23 @@ class EntityCreateRequest(BaseModel):
 class RelationCreateRequest(BaseModel):
     source_entity: str = Field(
         ...,
-        description="Name of the source entity. This entity must already exist in the knowledge graph.",
+        description="源实体的名称。该实体必须已存在于知识图谱中。",
         min_length=1,
-        examples=["Elon Musk"],
+        examples=["埃隆·马斯克"],
     )
     target_entity: str = Field(
         ...,
-        description="Name of the target entity. This entity must already exist in the knowledge graph.",
+        description="目标实体的名称。该实体必须已存在于知识图谱中。",
         min_length=1,
-        examples=["Tesla"],
+        examples=["特斯拉"],
     )
     relation_data: Dict[str, Any] = Field(
         ...,
-        description="Dictionary containing relationship properties. Common fields include 'description', 'keywords', and 'weight'.",
+        description="包含关系属性的字典。常见字段包括'description'、'keywords'和'weight'。",
         examples=[
             {
-                "description": "Elon Musk is the CEO of Tesla",
-                "keywords": "CEO, founder",
+                "description": "埃隆·马斯克是特斯拉的CEO",
+                "keywords": "CEO, 创始人",
                 "weight": 1.0,
             }
         ],
@@ -92,89 +92,89 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
     @router.get("/graph/label/list", dependencies=[Depends(combined_auth)])
     async def get_graph_labels():
         """
-        Get all graph labels
+        获取所有图谱标签
 
-        Returns:
-            List[str]: List of graph labels
+        返回:
+            List[str]: 图谱标签列表
         """
         try:
             return await rag.get_graph_labels()
         except Exception as e:
-            logger.error(f"Error getting graph labels: {str(e)}")
+            logger.error(f"获取图谱标签时出错: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(
-                status_code=500, detail=f"Error getting graph labels: {str(e)}"
+                status_code=500, detail=f"获取图谱标签时出错: {str(e)}"
             )
 
     @router.get("/graph/label/popular", dependencies=[Depends(combined_auth)])
     async def get_popular_labels(
         limit: int = Query(
-            300, description="Maximum number of popular labels to return", ge=1, le=1000
+            300, description="要返回的热门标签的最大数量", ge=1, le=1000
         ),
     ):
         """
-        Get popular labels by node degree (most connected entities)
+        按节点度获取热门标签（连接最多的实体）
 
-        Args:
-            limit (int): Maximum number of labels to return (default: 300, max: 1000)
+        参数:
+            limit (int): 要返回的标签最大数量（默认：300，最大：1000）
 
-        Returns:
-            List[str]: List of popular labels sorted by degree (highest first)
+        返回:
+            List[str]: 按度排序的热门标签列表（度最高的在前）
         """
         try:
             return await rag.chunk_entity_relation_graph.get_popular_labels(limit)
         except Exception as e:
-            logger.error(f"Error getting popular labels: {str(e)}")
+            logger.error(f"获取热门标签时出错: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(
-                status_code=500, detail=f"Error getting popular labels: {str(e)}"
+                status_code=500, detail=f"获取热门标签时出错: {str(e)}"
             )
 
     @router.get("/graph/label/search", dependencies=[Depends(combined_auth)])
     async def search_labels(
-        q: str = Query(..., description="Search query string"),
+        q: str = Query(..., description="搜索查询字符串"),
         limit: int = Query(
-            50, description="Maximum number of search results to return", ge=1, le=100
+            50, description="要返回的搜索结果最大数量", ge=1, le=100
         ),
     ):
         """
-        Search labels with fuzzy matching
+        使用模糊匹配搜索标签
 
-        Args:
-            q (str): Search query string
-            limit (int): Maximum number of results to return (default: 50, max: 100)
+        参数:
+            q (str): 搜索查询字符串
+            limit (int): 要返回的结果最大数量（默认：50，最大：100）
 
-        Returns:
-            List[str]: List of matching labels sorted by relevance
+        返回:
+            List[str]: 按相关性排序的匹配标签列表
         """
         try:
             return await rag.chunk_entity_relation_graph.search_labels(q, limit)
         except Exception as e:
-            logger.error(f"Error searching labels with query '{q}': {str(e)}")
+            logger.error(f"使用查询'{q}'搜索标签时出错: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(
-                status_code=500, detail=f"Error searching labels: {str(e)}"
+                status_code=500, detail=f"搜索标签时出错: {str(e)}"
             )
 
     @router.get("/graphs", dependencies=[Depends(combined_auth)])
     async def get_knowledge_graph(
-        label: str = Query(..., description="Label to get knowledge graph for"),
-        max_depth: int = Query(3, description="Maximum depth of graph", ge=1),
-        max_nodes: int = Query(1000, description="Maximum nodes to return", ge=1),
+        label: str = Query(..., description="要获取知识图谱的标签"),
+        max_depth: int = Query(3, description="图谱的最大深度", ge=1),
+        max_nodes: int = Query(1000, description="要返回的最大节点数", ge=1),
     ):
         """
-        Retrieve a connected subgraph of nodes where the label includes the specified label.
-        When reducing the number of nodes, the prioritization criteria are as follows:
-            1. Hops(path) to the staring node take precedence
-            2. Followed by the degree of the nodes
+        检索标签包含指定标签的连接子图。
+        在减少节点数量时，优先级标准如下：
+            1. 到起始节点的跳数（路径）优先
+            2. 其次是节点的度
 
-        Args:
-            label (str): Label of the starting node
-            max_depth (int, optional): Maximum depth of the subgraph,Defaults to 3
-            max_nodes: Maxiumu nodes to return
+        参数:
+            label (str): 起始节点的标签
+            max_depth (int, 可选): 子图的最大深度，默认为3
+            max_nodes: 要返回的最大节点数
 
-        Returns:
-            Dict[str, List[str]]: Knowledge graph for label
+        返回:
+            Dict[str, List[str]]: 标签的知识图谱
         """
         try:
             # Log the label parameter to check for leading spaces
@@ -188,52 +188,51 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
                 max_nodes=max_nodes,
             )
         except Exception as e:
-            logger.error(f"Error getting knowledge graph for label '{label}': {str(e)}")
+            logger.error(f"获取标签'{label}'的知识图谱时出错: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(
-                status_code=500, detail=f"Error getting knowledge graph: {str(e)}"
+                status_code=500, detail=f"获取知识图谱时出错: {str(e)}"
             )
 
     @router.get("/graph/entity/exists", dependencies=[Depends(combined_auth)])
     async def check_entity_exists(
-        name: str = Query(..., description="Entity name to check"),
+        name: str = Query(..., description="要检查的实体名称"),
     ):
         """
-        Check if an entity with the given name exists in the knowledge graph
+        检查知识图谱中是否存在具有给定名称的实体
 
-        Args:
-            name (str): Name of the entity to check
+        参数:
+            name (str): 要检查的实体名称
 
-        Returns:
-            Dict[str, bool]: Dictionary with 'exists' key indicating if entity exists
+        返回:
+            Dict[str, bool]: 包含'exists'键的字典，指示实体是否存在
         """
         try:
             exists = await rag.chunk_entity_relation_graph.has_node(name)
             return {"exists": exists}
         except Exception as e:
-            logger.error(f"Error checking entity existence for '{name}': {str(e)}")
+            logger.error(f"检查实体'{name}'存在性时出错: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(
-                status_code=500, detail=f"Error checking entity existence: {str(e)}"
+                status_code=500, detail=f"检查实体存在性时出错: {str(e)}"
             )
 
     @router.post("/graph/entity/edit", dependencies=[Depends(combined_auth)])
     async def update_entity(request: EntityUpdateRequest):
         """
-        Update an entity's properties in the knowledge graph
+        更新知识图谱中实体的属性
 
-        This endpoint allows updating entity properties, including renaming entities.
-        When renaming to an existing entity name, the behavior depends on allow_merge:
+        此端点允许更新实体属性，包括重命名实体。
+        当重命名为现有实体名称时，行为取决于allow_merge：
 
-        Args:
-            request (EntityUpdateRequest): Request containing:
-                - entity_name (str): Name of the entity to update
-                - updated_data (Dict[str, Any]): Dictionary of properties to update
-                - allow_rename (bool): Whether to allow entity renaming (default: False)
-                - allow_merge (bool): Whether to merge into existing entity when renaming
-                                     causes name conflict (default: False)
+        参数:
+            request (EntityUpdateRequest): 请求包含：
+                - entity_name (str): 要更新的实体名称
+                - updated_data (Dict[str, Any]): 要更新的属性字典
+                - allow_rename (bool): 是否允许实体重命名（默认：False）
+                - allow_merge (bool): 重命名导致名称冲突时是否合并到现有实体（默认：False）
 
-        Returns:
+        返回:
             Dict with the following structure:
             {
                 "status": "success",
