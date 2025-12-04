@@ -19,3 +19,10 @@ services:
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - geo-network
+networks:
+  geo-network:
+    external: true
+    name: geo-saas-platform_geo-network

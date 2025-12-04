@@ -51,6 +51,8 @@ from lightrag.api.routers.document_routes import (
 )
 from lightrag.api.routers.query_routes import create_query_routes
 from lightrag.api.routers.graph_routes import create_graph_routes
+from lightrag.api.routers.entity_relation_routes import create_entity_relation_routes
+from lightrag.api.routers.chunk_routes import create_chunk_routes
 from lightrag.api.routers.ollama_api import OllamaAPI
 
 from lightrag.utils import logger, set_verbose_debug
@@ -382,19 +384,69 @@ def create_app(args):
     base_description = (
         "Providing API for LightRAG core, Web UI and Ollama Model Emulation"
     )
-    swagger_description = (
-        base_description
-        + (" (API-Key Enabled)" if api_key else "")
-        + "\n\n[View ReDoc documentation](/redoc)"
-    )
+    
+    # Enhanced Swagger description with comprehensive documentation
+    swagger_description = f"""
+## 🚀 LightRAG Server API
+
+{base_description}{' (🔐 API-Key Enabled)' if api_key else ''}
+
+### 📚 主要功能模块
+
+#### 🗂️ 文档管理 (Document Management)
+- 文档上传、扫描、删除
+- 文档状态追踪
+- 批量文档处理
+- Pipeline 状态监控
+
+#### 🔍 知识检索 (Knowledge Retrieval)
+- 多模式查询 (local/global/hybrid/naive)
+- 流式查询响应
+- 结构化数据查询
+- 可选的重排序 (Rerank) 支持
+
+#### 🕸️ 知识图谱 (Knowledge Graph)
+- 实体管理：列表、详情、创建、更新、删除
+- 关系管理：列表、创建、编辑、删除
+- 图谱可视化数据导出
+- 标签管理
+
+#### 📄 文档分块 (Document Chunks)
+- 查看文档分块列表
+- 获取分块详情和关联信息
+- 按文档ID筛选分块
+
+#### 🏢 多租户支持 (Multi-tenancy)
+通过 `LIGHTRAG-WORKSPACE` 请求头实现数据隔离：
+```bash
+curl -H "LIGHTRAG-WORKSPACE: tenant_a" http://localhost:8020/entities/list
+```
+
+### 🔗 其他文档
+- [ReDoc 文档](/redoc)
+- [OpenAPI Schema](/openapi.json)
+
+### 📝 版本信息
+- **Core Version**: {core_version}
+- **API Version**: {api_version_display}
+    """
+    
     app_kwargs = {
         "title": "LightRAG Server API",
         "description": swagger_description,
         "version": __api_version__,
-        "openapi_url": "/openapi.json",  # Explicitly set OpenAPI schema URL
+        "openapi_url": "/openapi.json",
         "docs_url": None,  # Disable default docs, we'll create custom endpoint
-        "redoc_url": "/redoc",  # Explicitly set redoc URL
+        "redoc_url": "/redoc",
         "lifespan": lifespan,
+        "contact": {
+            "name": "LightRAG Project",
+            "url": "https://github.com/HKUDS/LightRAG",
+        },
+        "license_info": {
+            "name": "MIT License",
+            "url": "https://github.com/HKUDS/LightRAG/blob/main/LICENSE",
+        },
     }
 
     # Configure Swagger UI parameters
@@ -402,6 +454,12 @@ def create_app(args):
     app_kwargs["swagger_ui_parameters"] = {
         "persistAuthorization": True,
         "tryItOutEnabled": True,
+        "displayRequestDuration": True,
+        "filter": True,  # Enable filter bar
+        "showExtensions": True,
+        "docExpansion": "none",  # Don't expand operations by default
+        "defaultModelsExpandDepth": 1,
+        "defaultModelExpandDepth": 1,
     }
 
     app = FastAPI(**app_kwargs)
@@ -1091,6 +1149,8 @@ def create_app(args):
     )
     app.include_router(create_query_routes(rag, api_key, args.top_k))
     app.include_router(create_graph_routes(rag, api_key))
+    app.include_router(create_entity_relation_routes(rag, api_key))
+    app.include_router(create_chunk_routes(rag, api_key))
 
     # Add Ollama API routes
     ollama_api = OllamaAPI(rag, top_k=args.top_k, api_key=api_key)
