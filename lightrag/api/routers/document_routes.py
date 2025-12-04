@@ -732,15 +732,6 @@ class PipelineStatusResponse(BaseModel):
         update_status: 所有命名空间的更新标志状态
     """
 
-        docs: Total number of documents to be indexed
-        batchs: Number of batches for processing documents
-        cur_batch: Current processing batch
-        request_pending: Flag for pending request for processing
-        latest_message: Latest message from pipeline processing
-        history_messages: List of history messages
-        update_status: Status of update flags for all namespaces
-    """
-
     autoscanned: bool = False
     busy: bool = False
     job_name: str = "Default Job"
