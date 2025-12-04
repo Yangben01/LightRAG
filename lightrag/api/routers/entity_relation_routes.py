@@ -192,7 +192,7 @@ def create_entity_relation_routes(rag, api_key: Optional[str] = None):
 
 **示例**：
 ```bash
-curl -X GET "http://localhost:9621/entities/特斯拉" \\
+curl -X GET "http://localhost:8020/entities/特斯拉" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 ```
         """,
@@ -329,15 +329,15 @@ curl -X GET "http://localhost:9621/entities/特斯拉" \\
 **示例**：
 ```bash
 # 获取所有关系
-curl -X GET "http://localhost:9621/relations/list?page=1&page_size=20" \\
+curl -X GET "http://localhost:8020/relations/list?page=1&page_size=20" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 
 # 筛选特定实体的关系
-curl -X GET "http://localhost:9621/relations/list?entity_name=特斯拉" \\
+curl -X GET "http://localhost:8020/relations/list?entity_name=特斯拉" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 
 # 按关键词搜索关系
-curl -X GET "http://localhost:9621/relations/list?keyword=CEO" \\
+curl -X GET "http://localhost:8020/relations/list?keyword=CEO" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 ```
         """,
@@ -467,7 +467,7 @@ curl -X GET "http://localhost:9621/relations/list?keyword=CEO" \\
 
 **示例**：
 ```bash
-curl -X GET "http://localhost:9621/entities/特斯拉/relations" \\
+curl -X GET "http://localhost:8020/entities/特斯拉/relations" \\
   -H "LIGHTRAG-WORKSPACE: my_workspace"
 ```
         """,

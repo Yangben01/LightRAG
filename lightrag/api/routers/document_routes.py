@@ -1024,10 +1024,29 @@ def _extract_docx(file_bytes: bytes) -> str:
     content_parts = []
     in_table = False  # Track if we're currently processing a table
 
+    # Helper function to safely get tag local name
+    def get_tag_localname(tag):
+        """Safely extract local name from tag, handling QName objects and strings."""
+        try:
+            # Try to get localname if it's a QName object
+            if hasattr(tag, 'localname'):
+                return tag.localname
+            # Try to convert to string and extract local name
+            tag_str = str(tag)
+            # Extract local name if tag contains namespace (e.g., "{http://...}p" -> "p")
+            if "}" in tag_str:
+                return tag_str.split("}")[-1]
+            return tag_str
+        except Exception:
+            # Fallback: try string conversion
+            return str(tag).split("}")[-1] if "}" in str(tag) else str(tag)
+
     # Iterate through all body elements in document order
     for element in doc.element.body:
+        tag_local = get_tag_localname(element.tag)
+        
         # Check if element is a paragraph
-        if element.tag.endswith("p"):
+        if tag_local.endswith("p"):
             # If coming out of a table, add blank line after table
             if in_table:
                 content_parts.append("")  # Blank line after table
@@ -1039,7 +1058,7 @@ def _extract_docx(file_bytes: bytes) -> str:
             content_parts.append(text)
 
         # Check if element is a table
-        elif element.tag.endswith("tbl"):
+        elif tag_local.endswith("tbl"):
             # Add blank line before table (if content exists)
             if content_parts and not in_table:
                 content_parts.append("")  # Blank line before table
