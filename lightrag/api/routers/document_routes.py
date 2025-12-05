@@ -456,6 +456,80 @@ class DocStatusResponse(BaseModel):
                 "updated_at": "2025-03-31T12:35:30",
                 "track_id": "upload_20250729_170612_abc123",
                 "chunks_count": 12,
+                "error_msg": None,
+                "metadata": {"author": "John Doe", "year": 2025},
+                "file_path": "research_paper.pdf",
+            }
+        }
+
+
+class SimpleDocResponse(BaseModel):
+    """简化的文档响应模型（仅包含基本信息，用于文档列表展示）
+
+    属性:
+        id: 文档的唯一标识符
+        name: 文档名称（文件名）
+        category_id: 分类ID（如果有）
+    """
+    id: str = Field(description="文档的唯一标识符")
+    name: str = Field(description="文档名称（文件名）")
+    category_id: Optional[str] = Field(
+        default=None, description="分类ID（如果有）"
+    )
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "id": "doc_123456",
+                "name": "技术手册.pdf",
+                "category_id": "cat_123456"
+            }
+        }
+
+
+class SimpleDocListResponse(BaseModel):
+    """简化的文档列表响应模型
+
+    属性:
+        documents: 文档列表（仅包含基本信息）
+        pagination: 分页信息
+        total: 总文档数
+    """
+    documents: List[SimpleDocResponse] = Field(description="文档列表")
+    pagination: "PaginationInfo" = Field(description="分页信息")
+    total: int = Field(description="总文档数")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "documents": [
+                    {
+                        "id": "doc_123456",
+                        "name": "技术手册.pdf",
+                        "category_id": "cat_123456"
+                    }
+                ],
+                "pagination": {
+                    "page": 1,
+                    "page_size": 50,
+                    "total_count": 100,
+                    "total_pages": 2,
+                    "has_next": True,
+                    "has_prev": False
+                },
+                "total": 100
+            }
+        }
+        json_schema_extra = {
+            "example": {
+                "id": "doc_123456",
+                "content_summary": "机器学习研究论文",
+                "content_length": 15240,
+                "status": "processed",
+                "created_at": "2025-03-31T12:34:56",
+                "updated_at": "2025-03-31T12:35:30",
+                "track_id": "upload_20250729_170612_abc123",
+                "chunks_count": 12,
                 "error": None,
                 "metadata": {"author": "John Doe", "year": 2025},
                 "file_path": "research_paper.pdf",
@@ -576,6 +650,7 @@ class DocumentsRequest(BaseModel):
     属性:
         status_filter: 按文档状态过滤，None表示所有状态
         category_id: 按分类ID过滤，None表示所有分类
+        search: 搜索关键词（按文件名模糊匹配），None表示不搜索
         page: 页码（从1开始）
         page_size: 每页文档数（10-200）
         sort_field: 排序字段（'created_at', 'updated_at', 'id', 'file_path'）
@@ -586,6 +661,9 @@ class DocumentsRequest(BaseModel):
     )
     category_id: Optional[str] = Field(
         default=None, description="按分类ID过滤，None表示所有分类"
+    )
+    search: Optional[str] = Field(
+        default=None, description="搜索关键词（按文件名模糊匹配），None表示不搜索"
     )
     page: int = Field(default=1, ge=1, description="页码（从1开始）")
     page_size: int = Field(
@@ -603,6 +681,7 @@ class DocumentsRequest(BaseModel):
             "example": {
                 "status_filter": "PROCESSED",
                 "category_id": "cat_123456",
+                "search": "技术",
                 "page": 1,
                 "page_size": 50,
                 "sort_field": "updated_at",
@@ -3033,6 +3112,17 @@ def create_document_routes(
                 docs_task, status_counts_task
             )
 
+            # Apply search filter if specified
+            if request.search:
+                search_lower = request.search.lower()
+                filtered_docs = []
+                for doc_id, doc in documents_with_ids:
+                    # 搜索文件名（不区分大小写）
+                    if doc.file_path and search_lower in doc.file_path.lower():
+                        filtered_docs.append((doc_id, doc))
+                documents_with_ids = filtered_docs
+                total_count = len(filtered_docs)
+            
             # Filter by category if specified
             if request.category_id:
                 filtered_docs = []
@@ -3056,8 +3146,15 @@ def create_document_routes(
                         if request.status_filter is None or status == request.status_filter:
                             docs = await rag.get_docs_by_status(status)
                             for d_id, d_status in docs.items():
+                                # 检查分类匹配
                                 if d_status.metadata and d_status.metadata.get('category_id') == request.category_id:
-                                    all_category_docs.append((d_id, d_status))
+                                    # 如果指定了搜索，还要检查文件名
+                                    if request.search:
+                                        search_lower = request.search.lower()
+                                        if d_status.file_path and search_lower in d_status.file_path.lower():
+                                            all_category_docs.append((d_id, d_status))
+                                    else:
+                                        all_category_docs.append((d_id, d_status))
                     
                     # Sort all documents
                     sort_key_map = {
@@ -3120,6 +3217,158 @@ def create_document_routes(
 
         except Exception as e:
             logger.error(f"Error getting paginated documents: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post(
+        "/list",
+        response_model=SimpleDocListResponse,
+        dependencies=[Depends(combined_auth)],
+        summary="获取简化的文档列表（仅包含ID和文件名）",
+        description="""
+获取简化的文档列表，仅返回文档ID和文件名，适用于前端文档列表展示。
+
+**功能特性**：
+- 支持按分类筛选（category_id）
+- 支持按文件名搜索（search）
+- 支持分页
+- 支持排序
+
+**多租户支持**：通过 `LIGHTRAG-WORKSPACE` 请求头指定工作空间。
+
+**示例**：
+```bash
+# 获取所有文档
+curl -X POST "http://localhost:9521/documents/list" \\
+  -H "LIGHTRAG-WORKSPACE: space1" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "page": 1,
+    "page_size": 50
+  }'
+
+# 按分类筛选
+curl -X POST "http://localhost:9521/documents/list" \\
+  -H "LIGHTRAG-WORKSPACE: space1" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "category_id": "cat_123456",
+    "page": 1,
+    "page_size": 50
+  }'
+
+# 搜索文档
+curl -X POST "http://localhost:9521/documents/list" \\
+  -H "LIGHTRAG-WORKSPACE: space1" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "search": "技术",
+    "page": 1,
+    "page_size": 50
+  }'
+```
+        """,
+        responses={
+            200: {"description": "成功返回文档列表"},
+            500: {"description": "服务器内部错误"}
+        }
+    )
+    async def get_documents_list(
+        request: DocumentsRequest,
+    ) -> SimpleDocListResponse:
+        """
+        获取简化的文档列表（仅包含ID和文件名）
+        
+        适用于前端文档列表展示，返回的数据量更小，加载更快。
+        """
+        try:
+            # 获取所有文档（不按状态过滤，显示所有状态的文档）
+            all_statuses = [
+                DocStatus.PENDING,
+                DocStatus.PROCESSING,
+                DocStatus.PREPROCESSED,
+                DocStatus.PROCESSED,
+                DocStatus.FAILED,
+            ]
+            
+            all_docs = []
+            for status in all_statuses:
+                if request.status_filter is None or status == request.status_filter:
+                    docs = await rag.get_docs_by_status(status)
+                    for doc_id, doc_status in docs.items():
+                        # 按分类筛选
+                        if request.category_id:
+                            if not doc_status.metadata or doc_status.metadata.get('category_id') != request.category_id:
+                                continue
+                        
+                        # 按文件名搜索
+                        if request.search:
+                            search_lower = request.search.lower()
+                            if not doc_status.file_path or search_lower not in doc_status.file_path.lower():
+                                continue
+                        
+                        all_docs.append((doc_id, doc_status))
+            
+            # 排序
+            sort_key_map = {
+                "created_at": lambda x: x[1].created_at,
+                "updated_at": lambda x: x[1].updated_at,
+                "id": lambda x: x[0],
+                "file_path": lambda x: x[1].file_path or "",
+            }
+            sort_key = sort_key_map.get(request.sort_field, sort_key_map["updated_at"])
+            reverse = request.sort_direction == "desc"
+            all_docs.sort(key=sort_key, reverse=reverse)
+            
+            # 分页
+            total_count = len(all_docs)
+            start_idx = (request.page - 1) * request.page_size
+            end_idx = start_idx + request.page_size
+            paginated_docs = all_docs[start_idx:end_idx]
+            
+            # 转换为简化格式
+            simple_docs = []
+            for doc_id, doc in paginated_docs:
+                category_id = None
+                if doc.metadata:
+                    category_id = doc.metadata.get('category_id')
+                
+                # 提取文件名（从file_path中提取）
+                file_name = doc.file_path or "未命名文档"
+                # 如果file_path包含路径，只取文件名
+                if "/" in file_name:
+                    file_name = file_name.split("/")[-1]
+                if "\\" in file_name:
+                    file_name = file_name.split("\\")[-1]
+                
+                simple_docs.append(SimpleDocResponse(
+                    id=doc_id,
+                    name=file_name,
+                    category_id=category_id
+                ))
+            
+            # 计算分页信息
+            total_pages = (total_count + request.page_size - 1) // request.page_size if total_count > 0 else 0
+            has_next = request.page < total_pages
+            has_prev = request.page > 1
+            
+            pagination = PaginationInfo(
+                page=request.page,
+                page_size=request.page_size,
+                total_count=total_count,
+                total_pages=total_pages,
+                has_next=has_next,
+                has_prev=has_prev,
+            )
+            
+            return SimpleDocListResponse(
+                documents=simple_docs,
+                pagination=pagination,
+                total=total_count
+            )
+            
+        except Exception as e:
+            logger.error(f"Error getting documents list: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
 
