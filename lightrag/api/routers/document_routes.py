@@ -575,6 +575,7 @@ class DocumentsRequest(BaseModel):
 
     属性:
         status_filter: 按文档状态过滤，None表示所有状态
+        category_id: 按分类ID过滤，None表示所有分类
         page: 页码（从1开始）
         page_size: 每页文档数（10-200）
         sort_field: 排序字段（'created_at', 'updated_at', 'id', 'file_path'）
@@ -582,6 +583,9 @@ class DocumentsRequest(BaseModel):
     """
     status_filter: Optional[DocStatus] = Field(
         default=None, description="按文档状态过滤，None表示所有状态"
+    )
+    category_id: Optional[str] = Field(
+        default=None, description="按分类ID过滤，None表示所有分类"
     )
     page: int = Field(default=1, ge=1, description="页码（从1开始）")
     page_size: int = Field(
@@ -598,6 +602,7 @@ class DocumentsRequest(BaseModel):
         json_schema_extra = {
             "example": {
                 "status_filter": "PROCESSED",
+                "category_id": "cat_123456",
                 "page": 1,
                 "page_size": 50,
                 "sort_field": "updated_at",
@@ -3028,6 +3033,52 @@ def create_document_routes(
                 docs_task, status_counts_task
             )
 
+            # Filter by category if specified
+            if request.category_id:
+                filtered_docs = []
+                for doc_id, doc in documents_with_ids:
+                    if doc.metadata and doc.metadata.get('category_id') == request.category_id:
+                        filtered_docs.append((doc_id, doc))
+                
+                # If filtering by category, we need to recalculate pagination
+                # Get all documents matching the category to get accurate total count
+                if filtered_docs:
+                    # Re-fetch all documents to get accurate total count for category
+                    all_statuses = [
+                        DocStatus.PENDING,
+                        DocStatus.PROCESSING,
+                        DocStatus.PREPROCESSED,
+                        DocStatus.PROCESSED,
+                        DocStatus.FAILED,
+                    ]
+                    all_category_docs = []
+                    for status in all_statuses:
+                        if request.status_filter is None or status == request.status_filter:
+                            docs = await rag.get_docs_by_status(status)
+                            for d_id, d_status in docs.items():
+                                if d_status.metadata and d_status.metadata.get('category_id') == request.category_id:
+                                    all_category_docs.append((d_id, d_status))
+                    
+                    # Sort all documents
+                    sort_key_map = {
+                        "created_at": lambda x: x[1].created_at,
+                        "updated_at": lambda x: x[1].updated_at,
+                        "id": lambda x: x[0],
+                        "file_path": lambda x: x[1].file_path or "",
+                    }
+                    sort_key = sort_key_map.get(request.sort_field, sort_key_map["updated_at"])
+                    reverse = request.sort_direction == "desc"
+                    all_category_docs.sort(key=sort_key, reverse=reverse)
+                    
+                    # Apply pagination
+                    start_idx = (request.page - 1) * request.page_size
+                    end_idx = start_idx + request.page_size
+                    documents_with_ids = all_category_docs[start_idx:end_idx]
+                    total_count = len(all_category_docs)
+                else:
+                    documents_with_ids = []
+                    total_count = 0
+
             # Convert documents to response format
             doc_responses = []
             for doc_id, doc in documents_with_ids:
@@ -3048,7 +3099,7 @@ def create_document_routes(
                 )
 
             # Calculate pagination info
-            total_pages = (total_count + request.page_size - 1) // request.page_size
+            total_pages = (total_count + request.page_size - 1) // request.page_size if total_count > 0 else 0
             has_next = request.page < total_pages
             has_prev = request.page > 1
 

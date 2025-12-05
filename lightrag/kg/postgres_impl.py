@@ -1259,6 +1259,14 @@ class PostgreSQLDB:
                 f"PostgreSQL, Failed to create full entities/relations tables: {e}"
             )
 
+        # Migrate to ensure LIGHTRAG_CATEGORIES table exists
+        try:
+            await self._migrate_create_categories_table()
+        except Exception as e:
+            logger.error(
+                f"PostgreSQL, Failed to create categories table: {e}"
+            )
+
     async def _migrate_create_full_entities_relations_tables(self):
         """Create LIGHTRAG_FULL_ENTITIES and LIGHTRAG_FULL_RELATIONS tables if they don't exist"""
         tables_to_check = [
@@ -1322,6 +1330,73 @@ class PostgreSQLDB:
 
             except Exception as e:
                 logger.error(f"Failed to create table {table_name}: {e}")
+
+    async def _migrate_create_categories_table(self):
+        """Create LIGHTRAG_CATEGORIES table if it doesn't exist"""
+        table_name = "LIGHTRAG_CATEGORIES"
+        try:
+            # Check if table exists
+            check_table_sql = """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_name = $1
+            AND table_schema = 'public'
+            """
+            table_exists = await self.query(check_table_sql, [table_name.lower()])
+
+            if not table_exists:
+                logger.info(f"Creating table {table_name}")
+                # Create table without foreign key first (to avoid circular dependency)
+                create_table_sql = """CREATE TABLE LIGHTRAG_CATEGORIES (
+                    id VARCHAR(255) NOT NULL,
+                    workspace VARCHAR(255) NOT NULL,
+                    name VARCHAR(100) NOT NULL,
+                    description TEXT,
+                    color VARCHAR(7),
+                    parent_id VARCHAR(255),
+                    created_at TIMESTAMP(0) DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP(0) DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT LIGHTRAG_CATEGORIES_PK PRIMARY KEY (workspace, id)
+                    )"""
+                await self.execute(create_table_sql)
+                logger.info(f"Successfully created categories table: {table_name}")
+
+                # Add foreign key constraint after table creation
+                try:
+                    add_fk_sql = """ALTER TABLE LIGHTRAG_CATEGORIES
+                        ADD CONSTRAINT LIGHTRAG_CATEGORIES_FK 
+                        FOREIGN KEY (workspace, parent_id) 
+                        REFERENCES LIGHTRAG_CATEGORIES(workspace, id) 
+                        ON DELETE SET NULL"""
+                    await self.execute(add_fk_sql)
+                    logger.info(f"Added foreign key constraint to {table_name}")
+                except Exception as fk_error:
+                    # Foreign key might fail if there are existing records, that's okay
+                    logger.warning(f"Could not add foreign key constraint: {fk_error}")
+
+                # Create indexes
+                try:
+                    # Create index for name (for searching)
+                    index_name = f"idx_{table_name.lower()}_name"
+                    create_index_sql = f"CREATE INDEX {index_name} ON {table_name}(workspace, name)"
+                    await self.execute(create_index_sql)
+                    logger.info(f"Created index {index_name} on table {table_name}")
+
+                    # Create index for parent_id (for hierarchical queries)
+                    parent_index_name = f"idx_{table_name.lower()}_parent_id"
+                    create_parent_index_sql = f"CREATE INDEX {parent_index_name} ON {table_name}(workspace, parent_id)"
+                    await self.execute(create_parent_index_sql)
+                    logger.info(f"Created index {parent_index_name} on table {table_name}")
+                except Exception as index_error:
+                    logger.warning(
+                        f"Failed to create indexes for {table_name}: {index_error}"
+                    )
+            else:
+                logger.debug(f"Table {table_name} already exists")
+
+        except Exception as e:
+            logger.error(f"Error checking/creating table {table_name}: {e}")
+            raise
 
     async def _create_pagination_indexes(self):
         """Create indexes to optimize pagination queries for LIGHTRAG_DOC_STATUS"""
@@ -4904,6 +4979,21 @@ TABLES = {
                     create_time TIMESTAMP(0) DEFAULT CURRENT_TIMESTAMP,
                     update_time TIMESTAMP(0) DEFAULT CURRENT_TIMESTAMP,
                     CONSTRAINT LIGHTRAG_RELATION_CHUNKS_PK PRIMARY KEY (workspace, id)
+                    )"""
+    },
+    "LIGHTRAG_CATEGORIES": {
+        "ddl": """CREATE TABLE LIGHTRAG_CATEGORIES (
+                    id VARCHAR(255) NOT NULL,
+                    workspace VARCHAR(255) NOT NULL,
+                    name VARCHAR(100) NOT NULL,
+                    description TEXT,
+                    color VARCHAR(7),
+                    parent_id VARCHAR(255),
+                    created_at TIMESTAMP(0) DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP(0) DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT LIGHTRAG_CATEGORIES_PK PRIMARY KEY (workspace, id),
+                    CONSTRAINT LIGHTRAG_CATEGORIES_FK FOREIGN KEY (workspace, parent_id) 
+                        REFERENCES LIGHTRAG_CATEGORIES(workspace, id) ON DELETE SET NULL
                     )"""
     },
 }

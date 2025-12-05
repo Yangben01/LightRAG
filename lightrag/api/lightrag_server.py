@@ -53,6 +53,7 @@ from lightrag.api.routers.query_routes import create_query_routes
 from lightrag.api.routers.graph_routes import create_graph_routes
 from lightrag.api.routers.entity_relation_routes import create_entity_relation_routes
 from lightrag.api.routers.chunk_routes import create_chunk_routes
+from lightrag.api.routers.category_routes import create_category_routes
 from lightrag.api.routers.ollama_api import OllamaAPI
 
 from lightrag.utils import logger, set_verbose_debug
@@ -1151,6 +1152,7 @@ curl -H "LIGHTRAG-WORKSPACE: tenant_a" http://localhost:9621/entities/list
     app.include_router(create_graph_routes(rag, api_key))
     app.include_router(create_entity_relation_routes(rag, api_key))
     app.include_router(create_chunk_routes(rag, api_key))
+    app.include_router(create_category_routes(rag, api_key))
 
     # Add Ollama API routes
     ollama_api = OllamaAPI(rag, top_k=args.top_k, api_key=api_key)
