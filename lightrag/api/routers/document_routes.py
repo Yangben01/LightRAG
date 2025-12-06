@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Literal
 from io import BytesIO
+from urllib.parse import urljoin, urlparse
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -274,6 +275,75 @@ class InsertTextsRequest(BaseModel):
                 "file_sources": [
                     "第一个文件来源（可选）",
                 ],
+            }
+        }
+
+
+class CrawlWebPageRequest(BaseModel):
+    """网页抓取请求模型
+
+    属性:
+        url: 要抓取的网页URL
+        title: 可选的网页标题（如果不提供，将从网页中提取）
+        crawl_links: 是否自动抓取页面中的链接（默认False）
+        max_links: 最大抓取链接数量（仅在crawl_links=True时有效，默认10）
+        same_domain_only: 是否只抓取同域名的链接（仅在crawl_links=True时有效，默认True）
+        link_pattern: 链接路径模式过滤（仅在crawl_links=True时有效，例如".asp"表示只抓取包含.asp的链接）
+        merge_pages: 是否将所有抓取的页面合并成一个文档（默认False）。如果为True，所有页面内容会合并成一个文档；如果为False，每个页面生成一个独立的文档
+    """
+
+    url: str = Field(
+        min_length=1,
+        description="要抓取的网页URL",
+    )
+    title: Optional[str] = Field(
+        default=None,
+        description="可选的网页标题",
+    )
+    crawl_links: bool = Field(
+        default=False,
+        description="是否自动抓取页面中的链接",
+    )
+    max_links: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="最大抓取链接数量（仅在crawl_links=True时有效）",
+    )
+    same_domain_only: bool = Field(
+        default=True,
+        description="是否只抓取同域名的链接（仅在crawl_links=True时有效）",
+    )
+    link_pattern: Optional[str] = Field(
+        default=None,
+        description="链接路径模式过滤（仅在crawl_links=True时有效，例如'.asp'表示只抓取包含.asp的链接）",
+    )
+    merge_pages: bool = Field(
+        default=False,
+        description="是否将所有抓取的页面合并成一个文档。如果为True，所有页面内容会合并成一个文档；如果为False，每个页面生成一个独立的文档",
+    )
+
+    @field_validator("url", mode="after")
+    @classmethod
+    def validate_url(cls, url: str) -> str:
+        url = url.strip()
+        if not url:
+            raise ValueError("URL不能为空")
+        # 简单的URL验证
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("URL必须以http://或https://开头")
+        return url
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "url": "https://example.com/article",
+                "title": "示例文章标题（可选）",
+                "crawl_links": False,
+                "max_links": 10,
+                "same_domain_only": True,
+                "link_pattern": ".asp",
+                "merge_pages": False,
             }
         }
 
@@ -2257,6 +2327,89 @@ async def background_delete_documents(
                 logger.error(f"Error processing pending documents after deletion: {e}")
 
 
+async def _extract_links_from_page(
+    soup, base_url: str, same_domain_only: bool, link_pattern: Optional[str]
+) -> List[str]:
+    """从页面中提取链接"""
+    links = set()
+    base_domain = urlparse(base_url).netloc
+    
+    # 查找所有a标签
+    for a_tag in soup.find_all("a", href=True):
+        href = a_tag.get("href", "").strip()
+        if not href or href.startswith("#") or href.startswith("javascript:") or href.startswith("mailto:"):
+            continue
+        
+        # 转换为绝对URL
+        try:
+            absolute_url = urljoin(base_url, href)
+            parsed = urlparse(absolute_url)
+            
+            # 过滤：只保留http/https协议
+            if parsed.scheme not in ("http", "https"):
+                continue
+            
+            # 过滤：同域名检查
+            if same_domain_only and parsed.netloc != base_domain:
+                continue
+            
+            # 过滤：链接模式匹配
+            if link_pattern and link_pattern not in parsed.path:
+                continue
+            
+            links.add(absolute_url)
+        except Exception:
+            continue
+    
+    return list(links)
+
+async def _crawl_single_page(
+    url: str, client, headers: dict, title: Optional[str] = None
+) -> Optional[tuple[str, str]]:
+    """抓取单个页面，返回(标题, 内容)或None"""
+    try:
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+        
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        # 移除script和style标签
+        for script in soup(["script", "style", "nav", "footer", "header", "aside"]):
+            script.decompose()
+        
+        # 提取标题
+        if not title:
+            title_tag = soup.find("title")
+            if title_tag:
+                title = title_tag.get_text().strip()
+            else:
+                h1_tag = soup.find("h1")
+                if h1_tag:
+                    title = h1_tag.get_text().strip()
+                else:
+                    title = url
+        
+        # 提取正文内容
+        main_content = soup.find("main") or soup.find("article") or soup.find("body")
+        if main_content:
+            text_content = main_content.get_text(separator="\n", strip=True)
+        else:
+            text_content = soup.get_text(separator="\n", strip=True)
+        
+        # 清理文本
+        lines = [line.strip() for line in text_content.split("\n") if line.strip()]
+        text_content = "\n".join(lines)
+        
+        if not text_content or len(text_content.strip()) < 10:
+            return None
+        
+        return (title, text_content)
+    except Exception as e:
+        logger.warning(f"抓取页面失败 {url}: {str(e)}")
+        return None
+
+
 def create_document_routes(
     rag: LightRAG, doc_manager: DocumentManager, api_key: Optional[str] = None
 ):
@@ -2527,6 +2680,232 @@ def create_document_routes(
             logger.error(f"插入文本时出错: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post(
+        "/crawl", response_model=InsertResponse, dependencies=[Depends(combined_auth)],
+        summary="抓取网页",
+        description="抓取网页内容并建立索引。支持批量抓取相关链接。",
+        response_description="网页抓取操作的结果"
+    )
+    async def crawl_web_page(
+        request: CrawlWebPageRequest, background_tasks: BackgroundTasks
+    ):
+        """
+        抓取网页内容并建立索引。
+
+        此端点抓取指定URL的网页内容，提取文本，并将其插入到RAG系统中以供后续检索。
+        如果启用crawl_links选项，会自动从页面中提取链接并批量抓取。
+
+        参数:
+            request (CrawlWebPageRequest): 包含要抓取的网页URL和可选标题的请求体。
+            background_tasks: FastAPI后台任务用于异步处理
+
+        返回:
+            InsertResponse: 包含操作状态的响应对象。
+
+        异常:
+            HTTPException: 如果URL无效、无法访问网页（400）或其他错误发生（500）。
+        """
+        try:
+            # 使用httpx异步抓取网页
+            try:
+                import httpx
+                from httpx import HTTPStatusError, RequestError
+            except ImportError:
+                raise HTTPException(
+                    status_code=500,
+                    detail="httpx未安装，无法抓取网页。请安装httpx: pip install httpx",
+                )
+
+            try:
+                from bs4 import BeautifulSoup
+            except ImportError:
+                raise HTTPException(
+                    status_code=500,
+                    detail="beautifulsoup4未安装，无法解析网页。请安装beautifulsoup4: pip install beautifulsoup4",
+                )
+
+            # 设置请求头，模拟浏览器
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+
+            urls_to_crawl = [request.url]
+            crawled_urls = set()
+            all_texts = []
+            all_sources = []
+
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                # 首先抓取主页面
+                main_response = await client.get(request.url, headers=headers)
+                main_response.raise_for_status()
+                
+                soup = BeautifulSoup(main_response.text, "html.parser")
+                
+                # 提取主页面内容
+                main_result = await _crawl_single_page(
+                    request.url, client, headers, request.title
+                )
+                
+                if not main_result:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="无法从主页面提取有效文本内容。",
+                    )
+                
+                main_title, main_content = main_result
+                main_text = f"{main_title}\n\n{main_content}"
+                all_texts.append(main_text)
+                all_sources.append(request.url)
+                crawled_urls.add(request.url)
+                
+                # 如果启用链接抓取，提取并抓取相关链接
+                if request.crawl_links:
+                    # 提取链接
+                    links = await _extract_links_from_page(
+                        soup, request.url, request.same_domain_only, request.link_pattern
+                    )
+                    
+                    # 过滤已存在的URL
+                    links_to_crawl = []
+                    for link in links:
+                        if link not in crawled_urls:
+                            # 检查是否已存在于doc_status存储中
+                            existing_doc_data = await rag.doc_status.get_doc_by_file_path(link)
+                            if not existing_doc_data:
+                                links_to_crawl.append(link)
+                    
+                    # 限制数量
+                    links_to_crawl = links_to_crawl[:request.max_links]
+                    
+                    logger.info(f"从 {request.url} 提取到 {len(links)} 个链接，将抓取 {len(links_to_crawl)} 个")
+                    
+                    # 批量抓取链接
+                    for link in links_to_crawl:
+                        if len(all_texts) >= request.max_links + 1:  # +1 因为主页面
+                            break
+                        
+                        result = await _crawl_single_page(link, client, headers)
+                        if result:
+                            link_title, link_content = result
+                            link_text = f"{link_title}\n\n{link_content}"
+                            all_texts.append(link_text)
+                            all_sources.append(link)
+                            crawled_urls.add(link)
+                        # 添加小延迟避免请求过快
+                        await asyncio.sleep(0.5)
+
+            # 根据 merge_pages 参数决定处理方式
+            if request.merge_pages:
+                # 合并模式：将所有页面内容合并成一个文档
+                # 使用分隔符连接各个页面，包含页面标题和URL信息
+                merged_parts = []
+                for i, (text, source) in enumerate(zip(all_texts, all_sources)):
+                    if i == 0:
+                        # 主页面
+                        page_title = text.split("\n")[0] if text else "主页面"
+                        merged_parts.append(f"# {page_title}\n\n来源: {source}\n\n{text}")
+                    else:
+                        # 相关链接页面
+                        page_title = text.split("\n")[0] if text else f"页面 {i+1}"
+                        merged_parts.append(f"\n\n{'='*80}\n\n# {page_title}\n\n来源: {source}\n\n{text}")
+                
+                merged_text = "\n".join(merged_parts)
+                
+                # 检查合并后的内容是否已存在
+                sanitized_text = sanitize_text_for_encoding(merged_text)
+                content_doc_id = compute_mdhash_id(sanitized_text, prefix="doc-")
+                existing_doc = await rag.doc_status.get_by_id(content_doc_id)
+                
+                if existing_doc:
+                    status = existing_doc.get("status", "unknown")
+                    existing_track_id = existing_doc.get("track_id") or ""
+                    return InsertResponse(
+                        status="duplicated",
+                        message=f"合并后的文档内容已存在于文档存储中（状态: {status}）。",
+                        track_id=existing_track_id,
+                    )
+                
+                # 生成track_id
+                track_id = generate_track_id("crawl")
+                
+                # 使用主URL作为file_path，并添加合并信息
+                merged_file_path = f"{request.url} (合并了{len(all_texts)}个页面)"
+                
+                # 添加到后台任务（单个合并文档）
+                background_tasks.add_task(
+                    pipeline_index_texts,
+                    rag,
+                    [merged_text],
+                    file_sources=[merged_file_path],
+                    track_id=track_id,
+                )
+                
+                message = f"成功抓取并合并 {len(all_texts)} 个页面为一个文档。将在后台继续处理。"
+                
+            else:
+                # 分离模式：每个页面生成一个独立的文档（原有逻辑）
+                texts_to_index = []
+                sources_to_index = []
+                
+                for text, source in zip(all_texts, all_sources):
+                    sanitized_text = sanitize_text_for_encoding(text)
+                    content_doc_id = compute_mdhash_id(sanitized_text, prefix="doc-")
+                    existing_doc = await rag.doc_status.get_by_id(content_doc_id)
+                    if not existing_doc:
+                        texts_to_index.append(text)
+                        sources_to_index.append(source)
+                
+                if not texts_to_index:
+                    # 所有内容都已存在
+                    return InsertResponse(
+                        status="duplicated",
+                        message=f"所有页面内容已存在于文档存储中。",
+                        track_id="",
+                    )
+
+                # 生成track_id
+                track_id = generate_track_id("crawl")
+
+                # 添加到后台任务
+                background_tasks.add_task(
+                    pipeline_index_texts,
+                    rag,
+                    texts_to_index,
+                    file_sources=sources_to_index,
+                    track_id=track_id,
+                )
+
+                total_crawled = len(texts_to_index)
+                message = f"成功抓取 {total_crawled} 个页面（主页面 + {total_crawled - 1} 个相关链接）。将在后台继续处理。"
+                if request.crawl_links and len(all_texts) > total_crawled:
+                    skipped = len(all_texts) - total_crawled
+                    message += f" 跳过 {skipped} 个已存在的页面。"
+
+            return InsertResponse(
+                status="success",
+                message=message,
+                track_id=track_id,
+            )
+
+        except HTTPStatusError as e:
+            logger.error(f"抓取网页时HTTP错误: {request.url}: {str(e)}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"无法访问网页: HTTP {e.response.status_code}",
+            )
+        except RequestError as e:
+            logger.error(f"抓取网页时请求错误: {request.url}: {str(e)}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"无法连接到网页: {str(e)}",
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"抓取网页时出错: {request.url}: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"抓取网页时出错: {str(e)}")
 
     @router.delete(
         "", response_model=ClearDocumentsResponse, dependencies=[Depends(combined_auth)]

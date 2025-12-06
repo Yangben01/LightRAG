@@ -585,6 +585,27 @@ export const insertTexts = async (texts: string[]): Promise<DocActionResponse> =
   return response.data
 }
 
+export const crawlWebPage = async (
+  url: string,
+  title?: string,
+  crawlLinks?: boolean,
+  maxLinks?: number,
+  sameDomainOnly?: boolean,
+  linkPattern?: string,
+  mergePages?: boolean
+): Promise<DocActionResponse> => {
+  const response = await axiosInstance.post('/documents/crawl', {
+    url,
+    title,
+    crawl_links: crawlLinks,
+    max_links: maxLinks,
+    same_domain_only: sameDomainOnly,
+    link_pattern: linkPattern,
+    merge_pages: mergePages
+  })
+  return response.data
+}
+
 export const uploadDocument = async (
   file: File,
   onUploadProgress?: (percentCompleted: number) => void
