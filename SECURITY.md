@@ -1,3 +1,5 @@
+"正在清理未使用的镜像和构建缓存..."
+docker image prune -f
 docker-compose build --no-cache
 如需启动容器，运行：
 
@@ -27,3 +29,11 @@ VALUES
 SELECT content, embedding <-> '[1.5, 3.5, 5.5]' AS l2_distance
 FROM embeddings
 ORDER BY l2_distance;
+
+
+
+CREATE INDEX IF NOT EXISTS idx_vdb_chunks_full_doc_id 
+ON LIGHTRAG_VDB_CHUNKS(workspace, full_doc_id);
+
+CREATE INDEX IF NOT EXISTS idx_vdb_entity_chunk_ids 
+ON LIGHTRAG_VDB_ENTITY USING GIN(chunk_ids);

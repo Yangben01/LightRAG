@@ -464,17 +464,43 @@ class DocStatusResponse(BaseModel):
 
 
 class SimpleDocResponse(BaseModel):
-    """简化的文档响应模型（仅包含基本信息，用于文档列表展示）
+    """简化的文档响应模型（包含基本信息和状态，用于文档列表展示）
 
     属性:
         id: 文档的唯一标识符
         name: 文档名称（文件名）
         category_id: 分类ID（如果有）
+        status: 文档处理状态
+        created_at: 创建时间戳（ISO格式字符串）
+        updated_at: 最后更新时间戳（ISO格式字符串）
+        chunks_count: 文档被分割成的块数（可选）
+        content_length: 文档内容的字符长度（可选）
+        file_path: 文档文件路径（可选）
+        error_msg: 错误消息（如果处理失败，可选）
+        metadata: 文档的元数据（包含分类、组织等信息，可选）
     """
     id: str = Field(description="文档的唯一标识符")
     name: str = Field(description="文档名称（文件名）")
     category_id: Optional[str] = Field(
         default=None, description="分类ID（如果有）"
+    )
+    status: DocStatus = Field(description="文档处理状态")
+    created_at: str = Field(description="创建时间戳（ISO格式字符串）")
+    updated_at: str = Field(description="最后更新时间戳（ISO格式字符串）")
+    chunks_count: Optional[int] = Field(
+        default=None, description="文档被分割成的块数"
+    )
+    content_length: Optional[int] = Field(
+        default=None, description="文档内容的字符长度"
+    )
+    file_path: Optional[str] = Field(
+        default=None, description="文档文件路径"
+    )
+    error_msg: Optional[str] = Field(
+        default=None, description="错误消息（如果处理失败）"
+    )
+    metadata: Optional[dict[str, Any]] = Field(
+        default=None, description="文档的元数据（包含分类、组织等信息）"
     )
 
     class Config:
@@ -482,16 +508,29 @@ class SimpleDocResponse(BaseModel):
             "example": {
                 "id": "doc_123456",
                 "name": "技术手册.pdf",
-                "category_id": "cat_123456"
+                "category_id": "cat_123456",
+                "status": "processed",
+                "created_at": "2025-03-31T12:34:56",
+                "updated_at": "2025-03-31T12:35:30",
+                "chunks_count": 12,
+                "content_length": 15240,
+                "file_path": "技术手册.pdf",
+                "error_msg": None,
+                "metadata": {
+                    "category_id": "cat_123456",
+                    "organization": "技术部",
+                    "processing_start_time": 1234567890,
+                    "processing_end_time": 1234567900
+                }
             }
         }
 
 
 class SimpleDocListResponse(BaseModel):
-    """简化的文档列表响应模型
+    """文档列表响应模型
 
     属性:
-        documents: 文档列表（仅包含基本信息）
+        documents: 文档列表（包含基本信息和状态）
         pagination: 分页信息
         total: 总文档数
     """
@@ -506,7 +545,18 @@ class SimpleDocListResponse(BaseModel):
                     {
                         "id": "doc_123456",
                         "name": "技术手册.pdf",
-                        "category_id": "cat_123456"
+                        "category_id": "cat_123456",
+                        "status": "processed",
+                        "created_at": "2025-03-31T12:34:56",
+                        "updated_at": "2025-03-31T12:35:30",
+                        "chunks_count": 12,
+                        "content_length": 15240,
+                        "file_path": "技术手册.pdf",
+                        "error_msg": None,
+                        "metadata": {
+                            "category_id": "cat_123456",
+                            "organization": "技术部"
+                        }
                     }
                 ],
                 "pagination": {
@@ -518,21 +568,6 @@ class SimpleDocListResponse(BaseModel):
                     "has_prev": False
                 },
                 "total": 100
-            }
-        }
-        json_schema_extra = {
-            "example": {
-                "id": "doc_123456",
-                "content_summary": "机器学习研究论文",
-                "content_length": 15240,
-                "status": "processed",
-                "created_at": "2025-03-31T12:34:56",
-                "updated_at": "2025-03-31T12:35:30",
-                "track_id": "upload_20250729_170612_abc123",
-                "chunks_count": 12,
-                "error": None,
-                "metadata": {"author": "John Doe", "year": 2025},
-                "file_path": "research_paper.pdf",
             }
         }
 
@@ -1055,6 +1090,59 @@ def _extract_pdf_pypdf(file_bytes: bytes, password: str = None) -> str:
         content += page.extract_text() + "\n"
 
     return content
+
+
+def _get_pdf_diagnostic_info(file_bytes: bytes, password: str = None) -> dict:
+    """Get diagnostic information about a PDF file.
+
+    Args:
+        file_bytes: PDF file content as bytes
+        password: Optional password for encrypted PDFs
+
+    Returns:
+        dict: Diagnostic information including page count, encryption status, etc.
+    """
+    try:
+        from pypdf import PdfReader  # type: ignore
+
+        pdf_file = BytesIO(file_bytes)
+        reader = PdfReader(pdf_file)
+
+        info = {
+            "page_count": len(reader.pages),
+            "is_encrypted": reader.is_encrypted,
+            "metadata": reader.metadata if hasattr(reader, "metadata") else None,
+        }
+
+        # Handle encryption
+        if reader.is_encrypted:
+            if password:
+                decrypt_result = reader.decrypt(password)
+                if decrypt_result == 0:
+                    info["decryption_status"] = "failed"
+                    return info  # Can't extract text if decryption failed
+                else:
+                    info["decryption_status"] = "success"
+            else:
+                info["decryption_status"] = "no_password"
+                return info  # Can't extract text without password
+        else:
+            info["decryption_status"] = "not_encrypted"
+
+        # Try to extract text from first page to check if it's a scanned PDF
+        if len(reader.pages) > 0:
+            try:
+                first_page_text = reader.pages[0].extract_text()
+                info["first_page_has_text"] = bool(first_page_text and first_page_text.strip())
+                info["first_page_text_length"] = len(first_page_text) if first_page_text else 0
+            except Exception as e:
+                info["extraction_error"] = str(e)
+                info["first_page_has_text"] = False
+                info["first_page_text_length"] = 0
+
+        return info
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def _extract_docx(file_bytes: bytes) -> str:
@@ -1639,17 +1727,56 @@ async def pipeline_enqueue_file(
         if content:
             # Check if content contains only whitespace characters
             if not content.strip():
+                # For PDF files, get diagnostic information to provide better error message
+                error_description = "[File Extraction]File contains only whitespace"
+                original_error = "File content contains only whitespace characters"
+                
+                if ext == ".pdf":
+                    try:
+                        pdf_info = await asyncio.to_thread(
+                            _get_pdf_diagnostic_info,
+                            file,
+                            global_args.pdf_decrypt_password,
+                        )
+                        page_count = pdf_info.get("page_count", 0)
+                        first_page_has_text = pdf_info.get("first_page_has_text", False)
+                        
+                        if page_count > 0 and not first_page_has_text:
+                            # Likely a scanned PDF (image-based) without text layer
+                            error_description = "[File Extraction]PDF appears to be scanned/image-based without text layer"
+                            original_error = (
+                                f"PDF contains {page_count} page(s) but no extractable text was found. "
+                                "This PDF may be a scanned document (image-based) without a text layer. "
+                                "Consider using DOCLING engine (with OCR support) or converting the PDF to text first."
+                            )
+                        elif page_count > 0:
+                            error_description = "[File Extraction]PDF extraction returned only whitespace"
+                            original_error = (
+                                f"PDF contains {page_count} page(s) but extracted content is empty or whitespace only. "
+                                "The PDF may have formatting issues or require OCR processing."
+                            )
+                        else:
+                            original_error = (
+                                "PDF file could not be analyzed. "
+                                "File may be corrupted or in an unsupported format."
+                            )
+                    except Exception as diag_error:
+                        logger.debug(
+                            f"Failed to get PDF diagnostic info for {file_path.name}: {str(diag_error)}"
+                        )
+                        # Fall back to default error message
+                
                 error_files = [
                     {
                         "file_path": str(file_path.name),
-                        "error_description": "[File Extraction]File contains only whitespace",
-                        "original_error": "File content contains only whitespace characters",
+                        "error_description": error_description,
+                        "original_error": original_error,
                         "file_size": file_size,
                     }
                 ]
                 await rag.apipeline_enqueue_error_documents(error_files, track_id)
                 logger.warning(
-                    f"[File Extraction]File contains only whitespace characters: {file_path.name}"
+                    f"[File Extraction]File contains only whitespace characters: {file_path.name} - {original_error}"
                 )
                 return False, track_id
 
@@ -3224,9 +3351,16 @@ def create_document_routes(
         "/list",
         response_model=SimpleDocListResponse,
         dependencies=[Depends(combined_auth)],
-        summary="获取简化的文档列表（仅包含ID和文件名）",
+        summary="获取文档列表（包含ID、文件名、状态等信息）",
         description="""
-获取简化的文档列表，仅返回文档ID和文件名，适用于前端文档列表展示。
+获取文档列表，返回文档的基本信息和状态，适用于前端文档列表展示。
+
+**返回信息包括**：
+- 文档ID和文件名
+- 文档处理状态（pending/processing/preprocessed/processed/failed）
+- 创建时间和更新时间
+- 文档块数量、内容长度
+- 文件路径和错误信息（如有）
 
 **功能特性**：
 - 支持按分类筛选（category_id）
@@ -3277,9 +3411,9 @@ curl -X POST "http://localhost:9521/documents/list" \\
         request: DocumentsRequest,
     ) -> SimpleDocListResponse:
         """
-        获取简化的文档列表（仅包含ID和文件名）
+        获取文档列表（包含ID、文件名、状态等信息）
         
-        适用于前端文档列表展示，返回的数据量更小，加载更快。
+        适用于前端文档列表展示，返回文档的基本信息和处理状态。
         """
         try:
             # 获取所有文档（不按状态过滤，显示所有状态的文档）
@@ -3344,7 +3478,15 @@ curl -X POST "http://localhost:9521/documents/list" \\
                 simple_docs.append(SimpleDocResponse(
                     id=doc_id,
                     name=file_name,
-                    category_id=category_id
+                    category_id=category_id,
+                    status=doc.status,
+                    created_at=doc.created_at,
+                    updated_at=doc.updated_at,
+                    chunks_count=doc.chunks_count,
+                    content_length=doc.content_length,
+                    file_path=doc.file_path,
+                    error_msg=doc.error_msg,
+                    metadata=doc.metadata if doc.metadata else None
                 ))
             
             # 计算分页信息

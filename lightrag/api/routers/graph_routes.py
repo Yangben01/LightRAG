@@ -161,6 +161,7 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
         label: str = Query(..., description="要获取知识图谱的标签"),
         max_depth: int = Query(3, description="图谱的最大深度", ge=1),
         max_nodes: int = Query(1000, description="要返回的最大节点数", ge=1),
+        file_path: Optional[str] = Query(None, description="按文档文件路径筛选（可选）"),
     ):
         """
         检索标签包含指定标签的连接子图。
@@ -172,21 +173,87 @@ def create_graph_routes(rag, api_key: Optional[str] = None):
             label (str): 起始节点的标签
             max_depth (int, 可选): 子图的最大深度，默认为3
             max_nodes: 要返回的最大节点数
+            file_path (str, 可选): 按文档文件路径筛选，只返回与该文档相关的节点和边
 
         返回:
-            Dict[str, List[str]]: 标签的知识图谱
+            KnowledgeGraph: 标签的知识图谱（如果指定了file_path，则只包含该文档相关的节点和边）
         """
         try:
             # Log the label parameter to check for leading spaces
             logger.debug(
-                f"get_knowledge_graph called with label: '{label}' (length: {len(label)}, repr: {repr(label)})"
+                f"get_knowledge_graph called with label: '{label}' (length: {len(label)}, repr: {repr(label)}), file_path: {file_path}"
             )
 
-            return await rag.get_knowledge_graph(
+            kg = await rag.get_knowledge_graph(
                 node_label=label,
                 max_depth=max_depth,
                 max_nodes=max_nodes,
             )
+            
+            # 如果指定了 file_path，进行文档筛选
+            if file_path:
+                from lightrag.constants import GRAPH_FIELD_SEP
+                
+                original_node_count = len(kg.nodes)
+                original_edge_count = len(kg.edges)
+                
+                # 筛选节点：只保留 properties 中包含匹配 file_path 的节点
+                filtered_nodes = []
+                node_ids_to_keep = set()
+                
+                for node in kg.nodes:
+                    node_file_paths = []
+                    # 从节点的 properties 中获取 file_path
+                    # file_path 可能以不同形式存储：单个字符串、用 GRAPH_FIELD_SEP 分隔的字符串、列表、或不存在
+                    if isinstance(node.properties, dict):
+                        node_file_path = node.properties.get("file_path")
+                        if node_file_path:
+                            if isinstance(node_file_path, list):
+                                node_file_paths = node_file_path
+                            elif isinstance(node_file_path, str):
+                                # 处理用 GRAPH_FIELD_SEP 分隔的字符串格式
+                                if GRAPH_FIELD_SEP in node_file_path:
+                                    node_file_paths = [fp.strip() for fp in node_file_path.split(GRAPH_FIELD_SEP) if fp.strip()]
+                                else:
+                                    node_file_paths = [node_file_path]
+                    
+                    # 检查是否匹配（支持精确匹配和部分匹配）
+                    if any(fp == file_path or (isinstance(fp, str) and file_path in fp) for fp in node_file_paths):
+                        filtered_nodes.append(node)
+                        node_ids_to_keep.add(node.id)
+                
+                # 筛选边：只保留与保留节点相关的边，且边的 file_path 匹配
+                filtered_edges = []
+                for edge in kg.edges:
+                    # 边必须连接两个保留的节点
+                    if edge.source in node_ids_to_keep and edge.target in node_ids_to_keep:
+                        edge_file_paths = []
+                        # 从边的 properties 中获取 file_path
+                        if isinstance(edge.properties, dict):
+                            edge_file_path = edge.properties.get("file_path")
+                            if edge_file_path:
+                                if isinstance(edge_file_path, list):
+                                    edge_file_paths = edge_file_path
+                                elif isinstance(edge_file_path, str):
+                                    # 处理用 GRAPH_FIELD_SEP 分隔的字符串格式
+                                    if GRAPH_FIELD_SEP in edge_file_path:
+                                        edge_file_paths = [fp.strip() for fp in edge_file_path.split(GRAPH_FIELD_SEP) if fp.strip()]
+                                    else:
+                                        edge_file_paths = [edge_file_path]
+                        
+                        # 如果边有 file_path 且匹配，或者边没有 file_path 但连接的两个节点都在保留列表中
+                        if not edge_file_paths or any(fp == file_path or (isinstance(fp, str) and file_path in fp) for fp in edge_file_paths):
+                            filtered_edges.append(edge)
+                
+                # 更新知识图谱
+                kg.nodes = filtered_nodes
+                kg.edges = filtered_edges
+                
+                logger.info(
+                    f"文档筛选 (file_path={file_path}): 节点数 {len(kg.nodes)}/{original_node_count}, 边数 {len(kg.edges)}/{original_edge_count}"
+                )
+            
+            return kg
         except Exception as e:
             logger.error(f"获取标签'{label}'的知识图谱时出错: {str(e)}")
             logger.error(traceback.format_exc())

@@ -179,6 +179,255 @@ def create_entity_relation_routes(rag, api_key: Optional[str] = None):
             raise HTTPException(status_code=500, detail=f"获取实体列表失败: {str(e)}")
 
     @router.get(
+        "/entities/by-document",
+        dependencies=[Depends(combined_auth)],
+        summary="按文档查询实体",
+        description="""
+根据文档 ID 或文件路径查询该文档关联的所有实体，支持分页。
+
+**多租户支持**：通过 `LIGHTRAG-WORKSPACE` 请求头指定工作空间。
+
+**查询方式**：
+- 优先使用 `doc_id`（文档 ID，即 full_doc_id）- **推荐方式**
+- 或使用 `file_path`（文档文件路径）- 备选方式
+
+**推荐使用 `doc_id`**，因为：
+- ✅ 更准确：文档 ID 是唯一标识，不会重复
+- ✅ 性能更好：可以在 full_doc_id 上建立索引
+- ✅ 数据稳定：不会因为文件移动而改变
+
+**分页参数**：
+- `page`: 页码，从1开始（默认：1）
+- `page_size`: 每页数量，最大500（默认：50）
+
+**示例**：
+```bash
+# 通过文档 ID 查询（推荐，带分页）
+curl -X GET "http://localhost:8020/entities/by-document?doc_id=doc-123&page=1&page_size=20" \\
+  -H "LIGHTRAG-WORKSPACE: my_workspace"
+
+# 通过文件路径查询（带分页）
+curl -X GET "http://localhost:8020/entities/by-document?file_path=/path/to/document.pdf&page=1&page_size=20" \\
+  -H "LIGHTRAG-WORKSPACE: my_workspace"
+```
+        """,
+        responses={
+            200: {
+                "description": "成功返回实体列表（分页）",
+                "content": {
+                    "application/json": {
+                        "example": {
+                            "status": "success",
+                            "doc_id": "doc-123",
+                            "file_path": None,
+                            "total": 25,
+                            "page": 1,
+                            "page_size": 20,
+                            "entities_count": 20,
+                            "entities": [
+                                {
+                                    "id": "ent-abc123",
+                                    "entity_name": "特斯拉",
+                                    "content": "特斯拉是一家电动汽车公司...",
+                                    "chunk_ids": ["chunk-1", "chunk-2"],
+                                    "file_path": "/path/to/document.pdf",
+                                    "create_time": 1704067200,
+                                    "update_time": 1704067200
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            400: {"description": "参数错误：必须提供 doc_id 或 file_path"},
+            500: {"description": "服务器内部错误"}
+        },
+        tags=["实体管理 / Entity Management"]
+    )
+    async def get_entities_by_document(
+        request: Request,
+        doc_id: Optional[str] = Query(None, description="文档 ID (full_doc_id)，推荐使用"),
+        file_path: Optional[str] = Query(None, description="文档文件路径，备选方式"),
+        page: int = Query(1, ge=1, description="页码，从1开始"),
+        page_size: int = Query(50, ge=1, le=500, description="每页数量，最大500"),
+    ):
+        """
+        按文档查询实体（支持分页）
+
+        参数:
+        - doc_id: 文档 ID（推荐）
+        - file_path: 文档文件路径（备选）
+        - page: 页码，从1开始（默认：1）
+        - page_size: 每页数量，最大500（默认：50）
+
+        返回:
+        - status: 状态
+        - doc_id: 文档 ID
+        - file_path: 文档路径
+        - total: 总实体数量
+        - page: 当前页码
+        - page_size: 每页数量
+        - entities_count: 当前页实体数量
+        - entities: 实体列表
+        """
+        try:
+            # 参数验证
+            if not doc_id and not file_path:
+                raise HTTPException(
+                    status_code=400,
+                    detail="必须提供 doc_id 或 file_path 参数之一"
+                )
+
+            # 检查是否使用 PostgreSQL 向量存储
+            entities_vdb = rag.entities_vdb
+            if not hasattr(entities_vdb, "db") or entities_vdb.db is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="当前存储后端不支持按文档查询实体，请使用 PostgreSQL 向量存储"
+                )
+
+            from lightrag.kg.postgres_impl import PostgreSQLDB
+            if not isinstance(entities_vdb.db, PostgreSQLDB):
+                raise HTTPException(
+                    status_code=500,
+                    detail="当前存储后端不支持按文档查询实体，请使用 PostgreSQL 向量存储"
+                )
+
+            db = entities_vdb.db
+
+            # 计算分页偏移量
+            offset = (page - 1) * page_size
+
+            # 构建 COUNT 查询（获取总数）
+            if doc_id:
+                # 通过 full_doc_id 查询，full_doc_id 是全局唯一的，不需要 workspace
+                count_sql = """
+                SELECT COUNT(DISTINCT e.id) as total
+                FROM LIGHTRAG_VDB_ENTITY e
+                WHERE EXISTS (
+                      SELECT 1
+                      FROM LIGHTRAG_VDB_CHUNKS c
+                      WHERE c.full_doc_id = $1
+                        AND c.id = ANY(e.chunk_ids)
+                  );
+                """
+                count_params = [doc_id]
+                query_file_path = None
+            else:
+                # 通过 file_path 查询（备选方式），仍需要 workspace 来确保数据隔离
+                workspace = get_workspace_from_request(request) or rag.workspace
+                count_sql = """
+                SELECT COUNT(DISTINCT e.id) as total
+                FROM LIGHTRAG_VDB_ENTITY e
+                WHERE e.workspace = $1
+                  AND (
+                      e.file_path = $2
+                      OR EXISTS (
+                          SELECT 1
+                          FROM LIGHTRAG_VDB_CHUNKS c
+                          WHERE c.workspace = $1
+                            AND c.file_path = $2
+                            AND c.id = ANY(e.chunk_ids)
+                      )
+                  );
+                """
+                count_params = [workspace, file_path]
+                query_file_path = file_path
+
+            # 执行 COUNT 查询
+            count_result = await db.query(count_sql, count_params, multirows=False)
+            total = count_result.get("total", 0) if count_result else 0
+
+            # 构建数据查询（带分页）
+            if doc_id:
+                # 通过 full_doc_id 查询（推荐方式），full_doc_id 是全局唯一的，不需要 workspace
+                sql = """
+                SELECT DISTINCT
+                    e.id,
+                    e.entity_name,
+                    e.content,
+                    e.chunk_ids,
+                    e.file_path,
+                    EXTRACT(EPOCH FROM e.create_time)::BIGINT as create_time,
+                    EXTRACT(EPOCH FROM e.update_time)::BIGINT as update_time
+                FROM LIGHTRAG_VDB_ENTITY e
+                WHERE EXISTS (
+                      SELECT 1
+                      FROM LIGHTRAG_VDB_CHUNKS c
+                      WHERE c.full_doc_id = $1
+                        AND c.id = ANY(e.chunk_ids)
+                  )
+                ORDER BY create_time DESC
+                LIMIT $2 OFFSET $3;
+                """
+                params = [doc_id, page_size, offset]
+            else:
+                # 通过 file_path 查询（备选方式），仍需要 workspace 来确保数据隔离
+                workspace = get_workspace_from_request(request) or rag.workspace
+                sql = """
+                SELECT DISTINCT
+                    e.id,
+                    e.entity_name,
+                    e.content,
+                    e.chunk_ids,
+                    e.file_path,
+                    EXTRACT(EPOCH FROM e.create_time)::BIGINT as create_time,
+                    EXTRACT(EPOCH FROM e.update_time)::BIGINT as update_time
+                FROM LIGHTRAG_VDB_ENTITY e
+                WHERE e.workspace = $1
+                  AND (
+                      e.file_path = $2
+                      OR EXISTS (
+                          SELECT 1
+                          FROM LIGHTRAG_VDB_CHUNKS c
+                          WHERE c.workspace = $1
+                            AND c.file_path = $2
+                            AND c.id = ANY(e.chunk_ids)
+                      )
+                  )
+                ORDER BY create_time DESC
+                LIMIT $3 OFFSET $4;
+                """
+                params = [workspace, file_path, page_size, offset]
+
+            # 执行数据查询
+            results = await db.query(sql, params, multirows=True)
+
+            # 处理结果
+            entities = []
+            for row in results:
+                entity = {
+                    "id": row.get("id"),
+                    "entity_name": row.get("entity_name"),
+                    "content": row.get("content"),
+                    "chunk_ids": row.get("chunk_ids", []),
+                    "file_path": row.get("file_path"),
+                    "create_time": row.get("create_time"),
+                    "update_time": row.get("update_time"),
+                }
+                entities.append(entity)
+
+            return {
+                "status": "success",
+                "doc_id": doc_id,
+                "file_path": query_file_path,
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "entities_count": len(entities),
+                "entities": entities,
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"按文档查询实体失败: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(
+                status_code=500, detail=f"按文档查询实体失败: {str(e)}"
+            )
+
+    @router.get(
         "/entities/{entity_name}",
         dependencies=[Depends(combined_auth)],
         summary="获取实体详情",
