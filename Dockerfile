@@ -1,90 +1,111 @@
 # syntax=docker/dockerfile:1
 
+# ==========================
 # Python build stage - using uv for faster package installation
+# ==========================
 FROM sobot-private-cloud.tencentcloudcr.com/base/python:3.12-slim AS builder
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV UV_SYSTEM_PYTHON=1
-ENV UV_COMPILE_BYTECODE=1
+ENV DEBIAN_FRONTEND=noninteractive \
+    UV_SYSTEM_PYTHON=1 \
+    UV_COMPILE_BYTECODE=1
 
 WORKDIR /app
 
-# Install system deps (Rust is required by some wheels)
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+# ✅ 配置 apt 加速选项（和 backend 一致）
+RUN echo 'Acquire::http::Pipeline-Depth "5";' > /etc/apt/apt.conf.d/99parallel && \
+    echo 'Acquire::http::No-Cache "true";' >> /etc/apt/apt.conf.d/99parallel && \
+    echo 'Acquire::BrokenProxy "true";' >> /etc/apt/apt.conf.d/99parallel && \
+    echo 'Acquire::http::Timeout "30";' >> /etc/apt/apt.conf.d/99parallel && \
+    echo 'Acquire::ftp::Timeout "30";' >> /etc/apt/apt.conf.d/99parallel && \
+    echo 'APT::Get::Assume-Yes "true";' >> /etc/apt/apt.conf.d/99parallel && \
+    echo 'APT::Install-Recommends "false";' >> /etc/apt/apt.conf.d/99parallel
+
+# ✅ 使用阿里云 Trixie 源（彻底替换，避免回退到官方源）
+RUN rm -f /etc/apt/sources.list.d/* && \
+    echo "# 阿里云 Debian Trixie 镜像源" > /etc/apt/sources.list && \
+    echo "deb http://mirrors.aliyun.com/debian/ trixie main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
+    echo "deb http://mirrors.aliyun.com/debian/ trixie-updates main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
+    echo "deb http://mirrors.aliyun.com/debian/ trixie-backports main contrib non-free non-free-firmware" >> /etc/apt/sources.list && \
+    echo "deb http://mirrors.aliyun.com/debian-security/ trixie-security main contrib non-free non-free-firmware" >> /etc/apt/sources.list
+
+# ✅ 安装构建依赖并配置 Rust 国内源
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update -o Acquire::Check-Valid-Until=false -o Acquire::Retries=3 && \
+    apt-get install -y --no-install-recommends \
         curl \
         build-essential \
         pkg-config \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/cache/apt/archives/*
+
+# ✅ 配置 Rust 使用中科大源（比清华更稳定）
+ENV RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static \
+    RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://rsproxy.cn/rustup-init.sh | sh -s -- -y --default-toolchain stable --no-modify-path
 
 ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
 
-# Ensure shared data directory exists for uv caches
-RUN mkdir -p /root/.local/share/uv
+# ✅ 配置 Cargo 使用国内镜像（中科大源）
+RUN mkdir -p /root/.cargo && \
+    echo '[source.crates-io]' > /root/.cargo/config.toml && \
+    echo 'replace-with = "ustc"' >> /root/.cargo/config.toml && \
+    echo '' >> /root/.cargo/config.toml && \
+    echo '[source.ustc]' >> /root/.cargo/config.toml && \
+    echo 'registry = "sparse+https://mirrors.ustc.edu.cn/crates.io-index/"' >> /root/.cargo/config.toml && \
+    echo '' >> /root/.cargo/config.toml && \
+    echo '[net]' >> /root/.cargo/config.toml && \
+    echo 'git-fetch-with-cli = true' >> /root/.cargo/config.toml
 
-# Copy project metadata and sources
-COPY pyproject.toml .
-COPY setup.py .
-COPY uv.lock .
+# ✅ 配置 uv 使用清华 PyPI 源
+RUN mkdir -p /root/.local/share/uv && \
+    curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    /root/.local/bin/uv pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ && \
+    /root/.local/bin/uv pip config set install.trusted-host pypi.tuna.tsinghua.edu.cn
 
-# Install base, API, and offline extras without the project to improve caching
+# Install Python dependencies
+COPY pyproject.toml setup.py uv.lock ./
 RUN --mount=type=cache,target=/root/.local/share/uv \
+    --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
     uv sync --frozen --no-dev --extra api --extra offline --no-install-project --no-editable
 
-# Copy project sources after dependency layer
 COPY lightrag/ ./lightrag/
-
-# Sync project in non-editable mode and ensure pip is available for runtime installs
 RUN --mount=type=cache,target=/root/.local/share/uv \
+    --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/root/.cargo/git \
     uv sync --frozen --no-dev --extra api --extra offline --no-editable \
     && /app/.venv/bin/python -m ensurepip --upgrade
 
-# Prepare offline cache directory and pre-populate tiktoken data
-# Use uv run to execute commands from the virtual environment
+# Download tiktoken cache
 RUN mkdir -p /app/data/tiktoken \
     && uv run lightrag-download-cache --cache-dir /app/data/tiktoken || status=$?; \
     if [ -n "${status:-}" ] && [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then exit "$status"; fi
 
-# Final stage
+
+# ==========================
+# Final Stage
+# ==========================
 FROM sobot-private-cloud.tencentcloudcr.com/base/python:3.12-slim
 
 WORKDIR /app
 
-# Install uv for package management
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
-
 ENV UV_SYSTEM_PYTHON=1
 
-# Copy installed packages and application code
-COPY --from=builder /root/.local /root/.local
+# ✅ 从 builder 阶段复制必要文件
+COPY --from=builder /root/.local/bin/uv /usr/local/bin/uv
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/lightrag ./lightrag
-COPY pyproject.toml .
-COPY setup.py .
-COPY uv.lock .
-
-# Ensure the installed scripts are on PATH
-ENV PATH=/app/.venv/bin:/root/.local/bin:$PATH
-
-# Install dependencies with uv sync (uses locked versions from uv.lock)
-# And ensure pip is available for runtime installs
-RUN --mount=type=cache,target=/root/.local/share/uv \
-    uv sync --frozen --no-dev --extra api --extra offline --no-editable \
-    && /app/.venv/bin/python -m ensurepip --upgrade
-
-# Create persistent data directories AFTER package installation
-RUN mkdir -p /app/data/rag_storage /app/data/inputs /app/data/tiktoken
-
-# Copy offline cache into the newly created directory
 COPY --from=builder /app/data/tiktoken /app/data/tiktoken
+COPY pyproject.toml setup.py uv.lock ./
 
-# Point to the prepared cache
-ENV TIKTOKEN_CACHE_DIR=/app/data/tiktoken
-ENV WORKING_DIR=/app/data/rag_storage
-ENV INPUT_DIR=/app/data/inputs
+ENV PATH=/app/.venv/bin:$PATH \
+    TIKTOKEN_CACHE_DIR=/app/data/tiktoken \
+    WORKING_DIR=/app/data/rag_storage \
+    INPUT_DIR=/app/data/inputs
 
-# Expose API port
+RUN mkdir -p /app/data/rag_storage /app/data/inputs
+
 EXPOSE 9621
-
 ENTRYPOINT ["python", "-m", "lightrag.api.lightrag_server"]
