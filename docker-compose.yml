@@ -1,11 +1,12 @@
 services:
   lightrag:
     container_name: lightrag
+    image: ghcr.io/hkuds/lightrag:latest
     build:
       context: .
       dockerfile: Dockerfile
       tags:
-        - lightrag:local
+        - ghcr.io/hkuds/lightrag:latest
     ports:
       - "${PORT:-9621}:9621"
     volumes:
@@ -18,10 +19,3 @@ services:
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    networks:
-      - default
-      - geo-network
-networks:
-  geo-network:
-    external: true
-    name: geo-saas-platform_geo-network

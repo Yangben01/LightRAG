@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Python build stage - using uv for faster package installation
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+FROM sobot-private-cloud.tencentcloudcr.com/base/python:3.12-slim AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV UV_SYSTEM_PYTHON=1
@@ -31,29 +31,27 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://rsproxy.cn/rustup-init.sh | sh 
 ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
 
 # 配置 Cargo 使用字节跳动镜像源
-RUN mkdir -p /root/.cargo && cat > /root/.cargo/config.toml <<'EOF'
-[source.crates-io]
-replace-with = "rsproxy-sparse"
-
-[source.rsproxy]
-registry = "https://rsproxy.cn/crates.io-index"
-
-[source.rsproxy-sparse]
-registry = "sparse+https://rsproxy.cn/index/"
-
-[registries.rsproxy]
-index = "https://rsproxy.cn/crates.io-index"
-
-[net]
-git-fetch-with-cli = true
-EOF
+RUN mkdir -p /root/.cargo && \
+    echo '[source.crates-io]' > /root/.cargo/config.toml && \
+    echo 'replace-with = "rsproxy-sparse"' >> /root/.cargo/config.toml && \
+    echo '' >> /root/.cargo/config.toml && \
+    echo '[source.rsproxy]' >> /root/.cargo/config.toml && \
+    echo 'registry = "https://rsproxy.cn/crates.io-index"' >> /root/.cargo/config.toml && \
+    echo '' >> /root/.cargo/config.toml && \
+    echo '[source.rsproxy-sparse]' >> /root/.cargo/config.toml && \
+    echo 'registry = "sparse+https://rsproxy.cn/index/"' >> /root/.cargo/config.toml && \
+    echo '' >> /root/.cargo/config.toml && \
+    echo '[registries.rsproxy]' >> /root/.cargo/config.toml && \
+    echo 'index = "https://rsproxy.cn/crates.io-index"' >> /root/.cargo/config.toml && \
+    echo '' >> /root/.cargo/config.toml && \
+    echo '[net]' >> /root/.cargo/config.toml && \
+    echo 'git-fetch-with-cli = true' >> /root/.cargo/config.toml
 
 # 配置 pip 使用阿里云镜像源
-RUN mkdir -p /root/.pip && cat > /root/.pip/pip.conf <<'EOF'
-[global]
-index-url = https://mirrors.aliyun.com/pypi/simple/
-trusted-host = mirrors.aliyun.com
-EOF
+RUN mkdir -p /root/.pip && \
+    echo '[global]' > /root/.pip/pip.conf && \
+    echo 'index-url = https://mirrors.aliyun.com/pypi/simple/' >> /root/.pip/pip.conf && \
+    echo 'trusted-host = mirrors.aliyun.com' >> /root/.pip/pip.conf
 
 # Ensure shared data directory exists for uv caches
 RUN mkdir -p /root/.local/share/uv
@@ -81,7 +79,7 @@ RUN mkdir -p /app/data/tiktoken \
     if [ -n "${status:-}" ] && [ "$status" -ne 0 ] && [ "$status" -ne 2 ]; then exit "$status"; fi
 
 # Final stage
-FROM python:3.12-slim
+FROM sobot-private-cloud.tencentcloudcr.com/base/python:3.12-slim
 
 WORKDIR /app
 
@@ -95,11 +93,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV UV_SYSTEM_PYTHON=1
 
 # 配置 pip 使用阿里云镜像源（最终镜像）
-RUN mkdir -p /root/.pip && cat > /root/.pip/pip.conf <<'EOF'
-[global]
-index-url = https://mirrors.aliyun.com/pypi/simple/
-trusted-host = mirrors.aliyun.com
-EOF
+RUN mkdir -p /root/.pip && \
+    echo '[global]' > /root/.pip/pip.conf && \
+    echo 'index-url = https://mirrors.aliyun.com/pypi/simple/' >> /root/.pip/pip.conf && \
+    echo 'trusted-host = mirrors.aliyun.com' >> /root/.pip/pip.conf
 
 # Copy installed packages and application code
 COPY --from=builder /root/.local /root/.local
