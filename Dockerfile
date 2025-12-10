@@ -16,9 +16,9 @@ RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sourc
 # Install system deps (Rust is required by some wheels)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        curl \
-        build-essential \
-        pkg-config \
+    curl \
+    build-essential \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # 配置 Rust 镜像源（必须在安装前设置）
@@ -126,11 +126,6 @@ COPY uv.lock .
 
 # Ensure the installed scripts are on PATH
 ENV PATH=/app/.venv/bin:/root/.local/bin:$PATH
-
-# Install dependencies with uv sync (uses locked versions from uv.lock)
-RUN --mount=type=cache,target=/root/.local/share/uv \
-    uv sync --frozen --no-dev --extra api --no-editable \
-    && /app/.venv/bin/python -m ensurepip --upgrade
 
 # Create persistent data directories AFTER package installation
 RUN mkdir -p /app/data/rag_storage /app/data/inputs /app/data/tiktoken
