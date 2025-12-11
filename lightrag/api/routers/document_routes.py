@@ -1446,7 +1446,7 @@ def _extract_xlsx(file_bytes: bytes) -> str:
 
 
 async def pipeline_enqueue_file(
-    rag: LightRAG, file_path: Path, track_id: str = None, category_id: Optional[str] = None
+    rag: LightRAG, file_path: Path, track_id: str = None, category_id: Optional[str] = None, workspace: str = None
 ) -> tuple[bool, str]:
     """Add a file to the queue for processing
 
@@ -1455,6 +1455,7 @@ async def pipeline_enqueue_file(
         file_path: Path to the saved file
         track_id: Optional tracking ID, if not provided will be generated
         category_id: Optional category ID to associate with the document
+        workspace: Optional workspace to override rag.workspace
     Returns:
         tuple: (success: bool, track_id: str)
     """
@@ -1462,6 +1463,9 @@ async def pipeline_enqueue_file(
     # Generate track_id if not provided
     if track_id is None:
         track_id = generate_track_id("unknown")
+    
+    # workspace 参数保留用于向后兼容，但不再在这里处理
+    # workspace 切换应该在 pipeline_index_file 中统一处理
 
     try:
         content = ""
@@ -1939,7 +1943,7 @@ async def pipeline_enqueue_file(
                 logger.error(f"Error deleting file {file_path}: {str(e)}")
 
 
-async def pipeline_index_file(rag: LightRAG, file_path: Path, track_id: str = None, category_id: Optional[str] = None):
+async def pipeline_index_file(rag: LightRAG, file_path: Path, track_id: str = None, category_id: Optional[str] = None, workspace: str = None):
     """Index a file with track_id and optional category_id
 
     Args:
@@ -1947,17 +1951,65 @@ async def pipeline_index_file(rag: LightRAG, file_path: Path, track_id: str = No
         file_path: Path to the saved file
         track_id: Optional tracking ID
         category_id: Optional category ID to associate with the document
+        workspace: Optional workspace to override rag.workspace
     """
-    try:
-        success, returned_track_id = await pipeline_enqueue_file(
-            rag, file_path, track_id, category_id
-        )
-        if success:
-            await rag.apipeline_process_enqueue_documents()
+    # 如果指定了 workspace，在整个处理过程中使用它
+    original_workspace = None
+    if workspace and workspace != rag.workspace:
+        from lightrag.kg.shared_storage import initialize_pipeline_status
+        
+        # 初始化新 workspace 的 pipeline_status
+        await initialize_pipeline_status(workspace=workspace)
+        
+        # 临时修改 rag 及其存储实例的 workspace
+        original_workspace = rag.workspace
+        try:
+            # 修改 rag 和所有存储实例的 workspace
+            rag.workspace = workspace
+            for storage in [rag.doc_status, rag.full_docs, rag.text_chunks, rag.chunks_vdb,
+                           rag.entities_vdb, rag.relationships_vdb, rag.full_entities, 
+                           rag.full_relations, rag.entity_chunks, rag.relation_chunks,
+                           rag.chunk_entity_relation_graph, rag.llm_response_cache]:
+                if hasattr(storage, 'workspace'):
+                    storage.workspace = workspace
+            
+            # Ensure pipeline status is initialized for the new workspace
+            from lightrag.kg.shared_storage import initialize_pipeline_status
+            await initialize_pipeline_status(workspace=workspace)
+            
+            # 调用 pipeline_enqueue_file，此时 rag 已经使用正确的 workspace
+            # 所以不需要再传递 workspace 参数
+            success, returned_track_id = await pipeline_enqueue_file(
+                rag, file_path, track_id, category_id, None  # workspace=None，使用 rag.workspace
+            )
+            if success:
+                await rag.apipeline_process_enqueue_documents()
 
-    except Exception as e:
-        logger.error(f"Error indexing file {file_path.name}: {str(e)}")
-        logger.error(traceback.format_exc())
+        except Exception as e:
+            logger.error(f"Error indexing file {file_path.name}: {str(e)}")
+            logger.error(traceback.format_exc())
+        finally:
+            # 恢复原始 workspace
+            if original_workspace is not None:
+                rag.workspace = original_workspace
+                for storage in [rag.doc_status, rag.full_docs, rag.text_chunks, rag.chunks_vdb,
+                               rag.entities_vdb, rag.relationships_vdb, rag.full_entities, 
+                               rag.full_relations, rag.entity_chunks, rag.relation_chunks,
+                               rag.chunk_entity_relation_graph, rag.llm_response_cache]:
+                    if hasattr(storage, 'workspace'):
+                        storage.workspace = original_workspace
+    else: # If workspace is not specified or is the same as rag.workspace
+        try:
+            # 调用 pipeline_enqueue_file
+            success, returned_track_id = await pipeline_enqueue_file(
+                rag, file_path, track_id, category_id, None  # workspace=None，使用 rag.workspace
+            )
+            if success:
+                await rag.apipeline_process_enqueue_documents()
+
+        except Exception as e:
+            logger.error(f"Error indexing file {file_path.name}: {str(e)}")
+            logger.error(traceback.format_exc())
 
 
 async def pipeline_index_files(
@@ -2459,6 +2511,7 @@ def create_document_routes(
         response_description="上传操作的结果"
     )
     async def upload_to_input_dir(
+        http_request: Request,
         background_tasks: BackgroundTasks, 
         file: UploadFile = File(...),
         category_id: Optional[str] = Form(None, description="分类ID，用于关联文档到指定分类")
@@ -2501,8 +2554,26 @@ def create_document_routes(
                     detail=f"Unsupported file type. Supported types: {doc_manager.supported_extensions}",
                 )
 
+            # 从请求头中获取 workspace
+            request_workspace = get_workspace_from_request(http_request)
+            
             # Check if filename already exists in doc_status storage
-            existing_doc_data = await rag.doc_status.get_doc_by_file_path(safe_filename)
+            # 需要使用正确的 workspace 来检查
+            if request_workspace and request_workspace != rag.workspace:
+                # 创建临时的 doc_status 存储实例来检查文档是否存在
+                from lightrag.namespace import NameSpace
+                from dataclasses import asdict
+                global_config = asdict(rag)
+                temp_doc_status = rag.doc_status_storage_cls(
+                    namespace=NameSpace.DOC_STATUS,
+                    workspace=request_workspace,
+                    global_config=global_config,
+                    embedding_func=None,
+                )
+                await temp_doc_status.initialize()
+                existing_doc_data = await temp_doc_status.get_doc_by_file_path(safe_filename)
+            else:
+                existing_doc_data = await rag.doc_status.get_doc_by_file_path(safe_filename)
             if existing_doc_data:
                 # Get document status and track_id from existing document
                 status = existing_doc_data.get("status", "unknown")
@@ -2529,8 +2600,8 @@ def create_document_routes(
             track_id = generate_track_id("upload")
 
             # Add to background tasks and get track_id
-            # Pass category_id to pipeline_index_file if provided
-            background_tasks.add_task(pipeline_index_file, rag, file_path, track_id, category_id)
+            # Pass category_id and workspace to pipeline_index_file if provided
+            background_tasks.add_task(pipeline_index_file, rag, file_path, track_id, category_id, request_workspace)
 
             return InsertResponse(
                 status="success",
@@ -3605,6 +3676,7 @@ def create_document_routes(
     )
     async def get_documents_paginated(
         request: DocumentsRequest,
+        http_request: Request,
     ) -> PaginatedDocsResponse:
         """
         Get documents with pagination support.
@@ -3625,16 +3697,39 @@ def create_document_routes(
         Raises:
             HTTPException: If an error occurs while retrieving documents (500).
         """
+        # 从请求头中获取 workspace，如果没有则使用 rag 的默认 workspace
+        workspace = get_workspace_from_request(http_request) or rag.workspace
+        
+        # 如果 workspace 与 rag.workspace 不同，需要创建新的存储实例
+        temp_storage = None
+        if workspace != rag.workspace:
+            # 创建新的 DocStatusStorage 实例以支持不同的 workspace
+            from lightrag.namespace import NameSpace
+            from dataclasses import asdict
+            # 获取 global_config（与初始化时相同的方式）
+            global_config = asdict(rag)
+            temp_storage = rag.doc_status_storage_cls(
+                namespace=NameSpace.DOC_STATUS,
+                workspace=workspace,
+                global_config=global_config,
+                embedding_func=None,
+            )
+            await temp_storage.initialize()
+            doc_status_storage = temp_storage
+        else:
+            # 使用 rag 的默认存储实例
+            doc_status_storage = rag.doc_status
+        
         try:
             # Get paginated documents and status counts in parallel
-            docs_task = rag.doc_status.get_docs_paginated(
+            docs_task = doc_status_storage.get_docs_paginated(
                 status_filter=request.status_filter,
                 page=request.page,
                 page_size=request.page_size,
                 sort_field=request.sort_field,
                 sort_direction=request.sort_direction,
             )
-            status_counts_task = rag.doc_status.get_all_status_counts()
+            status_counts_task = doc_status_storage.get_all_status_counts()
 
             # Execute both queries in parallel
             (documents_with_ids, total_count), status_counts = await asyncio.gather(
@@ -3673,7 +3768,7 @@ def create_document_routes(
                     all_category_docs = []
                     for status in all_statuses:
                         if request.status_filter is None or status == request.status_filter:
-                            docs = await rag.get_docs_by_status(status)
+                            docs = await doc_status_storage.get_docs_by_status(status)
                             for d_id, d_status in docs.items():
                                 # 检查分类匹配
                                 if d_status.metadata and d_status.metadata.get('category_id') == request.category_id:
@@ -3748,6 +3843,10 @@ def create_document_routes(
             logger.error(f"Error getting paginated documents: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            # 清理临时存储实例
+            if temp_storage is not None:
+                await temp_storage.finalize()
 
     @router.post(
         "/list",

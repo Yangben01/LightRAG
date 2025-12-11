@@ -1567,6 +1567,11 @@ class LightRAG:
                     DocStatus.PROCESSING,
                     DocStatus.FAILED,
                 ]:
+                    # Preserve existing metadata (e.g., category_id) but remove processing times
+                    existing_metadata = status_doc.metadata if hasattr(status_doc, 'metadata') and status_doc.metadata else {}
+                    # Remove processing-related metadata keys while keeping others like category_id
+                    reset_metadata = {k: v for k, v in existing_metadata.items() if k not in ['processing_start_time', 'processing_end_time', 'error_type']}
+                    
                     # Prepare document for status reset to PENDING
                     docs_to_reset[doc_id] = {
                         "status": DocStatus.PENDING,
@@ -1578,7 +1583,7 @@ class LightRAG:
                         "track_id": getattr(status_doc, "track_id", ""),
                         # Clear any error messages and processing metadata
                         "error_msg": "",
-                        "metadata": {},
+                        "metadata": reset_metadata,
                     }
 
                     # Update the status in to_process_docs as well
@@ -1847,6 +1852,12 @@ class LightRAG:
 
                             # Process document in two stages
                             # Stage 1: Process text chunks and docs (parallel execution)
+                            # Preserve existing metadata (e.g., category_id) and add processing time
+                            existing_metadata = status_doc.metadata if hasattr(status_doc, 'metadata') and status_doc.metadata else {}
+                            updated_metadata = {
+                                **existing_metadata,  # Preserve existing metadata
+                                "processing_start_time": processing_start_time
+                            }
                             doc_status_task = asyncio.create_task(
                                 self.doc_status.upsert(
                                     {
@@ -1864,9 +1875,7 @@ class LightRAG:
                                             ).isoformat(),
                                             "file_path": file_path,
                                             "track_id": status_doc.track_id,  # Preserve existing track_id
-                                            "metadata": {
-                                                "processing_start_time": processing_start_time
-                                            },
+                                            "metadata": updated_metadata,
                                         }
                                     }
                                 )
@@ -1943,6 +1952,14 @@ class LightRAG:
                             # Record processing end time for failed case
                             processing_end_time = int(time.time())
 
+                            # Preserve existing metadata (e.g., category_id) and add processing times
+                            existing_metadata = status_doc.metadata if hasattr(status_doc, 'metadata') and status_doc.metadata else {}
+                            updated_metadata = {
+                                **existing_metadata,  # Preserve existing metadata
+                                "processing_start_time": processing_start_time,
+                                "processing_end_time": processing_end_time,
+                            }
+                            
                             # Update document status to failed
                             await self.doc_status.upsert(
                                 {
@@ -1957,10 +1974,7 @@ class LightRAG:
                                         ).isoformat(),
                                         "file_path": file_path,
                                         "track_id": status_doc.track_id,  # Preserve existing track_id
-                                        "metadata": {
-                                            "processing_start_time": processing_start_time,
-                                            "processing_end_time": processing_end_time,
-                                        },
+                                        "metadata": updated_metadata,
                                     }
                                 }
                             )
@@ -2000,6 +2014,14 @@ class LightRAG:
                                 # Record processing end time
                                 processing_end_time = int(time.time())
 
+                                # Preserve existing metadata (e.g., category_id) and add processing times
+                                existing_metadata = status_doc.metadata if hasattr(status_doc, 'metadata') and status_doc.metadata else {}
+                                updated_metadata = {
+                                    **existing_metadata,  # Preserve existing metadata
+                                    "processing_start_time": processing_start_time,
+                                    "processing_end_time": processing_end_time,
+                                }
+
                                 await self.doc_status.upsert(
                                     {
                                         doc_id: {
@@ -2014,10 +2036,7 @@ class LightRAG:
                                             ).isoformat(),
                                             "file_path": file_path,
                                             "track_id": status_doc.track_id,  # Preserve existing track_id
-                                            "metadata": {
-                                                "processing_start_time": processing_start_time,
-                                                "processing_end_time": processing_end_time,
-                                            },
+                                            "metadata": updated_metadata,
                                         }
                                     }
                                 )
@@ -2070,6 +2089,14 @@ class LightRAG:
                                 # Record processing end time for failed case
                                 processing_end_time = int(time.time())
 
+                                # Preserve existing metadata (e.g., category_id) and add processing times
+                                existing_metadata = status_doc.metadata if hasattr(status_doc, 'metadata') and status_doc.metadata else {}
+                                updated_metadata = {
+                                    **existing_metadata,  # Preserve existing metadata
+                                    "processing_start_time": processing_start_time,
+                                    "processing_end_time": processing_end_time,
+                                }
+
                                 # Update document status to failed
                                 await self.doc_status.upsert(
                                     {
@@ -2082,10 +2109,7 @@ class LightRAG:
                                             "updated_at": datetime.now().isoformat(),
                                             "file_path": file_path,
                                             "track_id": status_doc.track_id,  # Preserve existing track_id
-                                            "metadata": {
-                                                "processing_start_time": processing_start_time,
-                                                "processing_end_time": processing_end_time,
-                                            },
+                                            "metadata": updated_metadata,
                                         }
                                     }
                                 )
