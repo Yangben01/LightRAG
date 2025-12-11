@@ -19,6 +19,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Request,
     UploadFile,
 )
 from pydantic import BaseModel, Field, field_validator
@@ -2416,6 +2417,11 @@ def create_document_routes(
     # Create combined auth dependency for document routes
     combined_auth = get_combined_auth_dependency(api_key)
 
+    def get_workspace_from_request(request: Request) -> str | None:
+        """从请求头中提取 workspace 信息"""
+        workspace = request.headers.get("LIGHTRAG-WORKSPACE", "").strip()
+        return workspace if workspace else None
+
     @router.post(
         "/scan", response_model=ScanResponse, dependencies=[Depends(combined_auth)],
         summary="扫描新文档",
@@ -3787,6 +3793,7 @@ curl -X POST "http://localhost:9521/documents/list" \\
         }
     )
     async def get_documents_list(
+        http_request: Request,
         request: DocumentsRequest,
     ) -> SimpleDocListResponse:
         """
@@ -3794,7 +3801,31 @@ curl -X POST "http://localhost:9521/documents/list" \\
         
         适用于前端文档列表展示，返回文档的基本信息和处理状态。
         """
+        # 从请求头中获取 workspace，如果没有则使用 rag 的默认 workspace
+        workspace = get_workspace_from_request(http_request) or rag.workspace
+        
+        # 如果 workspace 与 rag.workspace 不同，需要创建新的存储实例
+        temp_storage = None
+        if workspace != rag.workspace:
+            # 创建新的 DocStatusStorage 实例以支持不同的 workspace
+            from lightrag.base import NameSpace
+            from dataclasses import asdict
+            # 获取 global_config（与初始化时相同的方式）
+            global_config = asdict(rag)
+            temp_storage = rag.doc_status_storage_cls(
+                namespace=NameSpace.DOC_STATUS,
+                workspace=workspace,
+                global_config=global_config,
+                embedding_func=None,
+            )
+            await temp_storage.initialize()
+            doc_status_storage = temp_storage
+        else:
+            # 使用 rag 的默认存储实例
+            doc_status_storage = rag.doc_status
+        
         try:
+            
             # 获取所有文档（不按状态过滤，显示所有状态的文档）
             all_statuses = [
                 DocStatus.PENDING,
@@ -3807,7 +3838,7 @@ curl -X POST "http://localhost:9521/documents/list" \\
             all_docs = []
             for status in all_statuses:
                 if request.status_filter is None or status == request.status_filter:
-                    docs = await rag.get_docs_by_status(status)
+                    docs = await doc_status_storage.get_docs_by_status(status)
                     for doc_id, doc_status in docs.items():
                         # 按分类筛选
                         if request.category_id:
@@ -3892,6 +3923,13 @@ curl -X POST "http://localhost:9521/documents/list" \\
             logger.error(f"Error getting documents list: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            # 清理临时创建的存储实例
+            if temp_storage is not None:
+                try:
+                    await temp_storage.finalize()
+                except Exception as e:
+                    logger.warning(f"Error finalizing temporary storage: {str(e)}")
 
     @router.get(
         "/status_counts",
