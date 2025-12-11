@@ -408,6 +408,8 @@ async def count_documents_by_category(rag: LightRAG, workspace: str | None, cate
     """统计指定分类下的文档数量"""
     try:
         count = 0
+        doc_status_storage = await get_doc_status_storage(rag, workspace)
+        
         # 获取所有文档状态
         statuses = [
             DocStatus.PENDING,
@@ -418,7 +420,7 @@ async def count_documents_by_category(rag: LightRAG, workspace: str | None, cate
         ]
         
         for status in statuses:
-            docs = await rag.get_docs_by_status(status)
+            docs = await doc_status_storage.get_docs_by_status(status)
             for doc_id, doc_status in docs.items():
                 if doc_status.metadata and doc_status.metadata.get('category_id') == category_id:
                     count += 1
@@ -427,6 +429,30 @@ async def count_documents_by_category(rag: LightRAG, workspace: str | None, cate
     except Exception as e:
         logger.error(f"Error counting documents by category: {e}")
         return 0
+
+
+async def get_doc_status_storage(rag: LightRAG, workspace: str | None) -> Any:
+    """获取指定工作空间的文档状态存储"""
+    target_workspace = workspace or rag.workspace
+    
+    # 如果目标工作空间与当前rag实例一致，直接返回
+    if target_workspace == rag.workspace:
+        return rag.doc_status
+        
+    global_config = getattr(rag.doc_status, "global_config", None)
+    if not global_config:
+        # 尝试构建最小配置
+        working_dir = getattr(rag, "working_dir", "./rag_storage")
+        global_config = {"working_dir": working_dir}
+        
+    storage = rag.doc_status_storage_cls(
+        namespace=rag.doc_status.namespace,
+        workspace=target_workspace,
+        global_config=global_config,
+        embedding_func=None
+    )
+    await storage.initialize()
+    return storage
 
 
 def create_category_routes(rag: LightRAG, api_key: Optional[str] = None):
@@ -777,6 +803,8 @@ curl -X DELETE "http://localhost:8020/categories/cat_123456" \\
             # 统计受影响的文档数量
             affected_count = await count_documents_by_category(rag, workspace, category_id)
             
+            doc_status_storage = await get_doc_status_storage(rag, workspace)
+            
             # 移除所有文档的该分类标签
             if affected_count > 0:
                 statuses = [
@@ -789,7 +817,7 @@ curl -X DELETE "http://localhost:8020/categories/cat_123456" \\
                 
                 docs_to_update = {}
                 for status in statuses:
-                    docs = await rag.get_docs_by_status(status)
+                    docs = await doc_status_storage.get_docs_by_status(status)
                     for doc_id, doc_status in docs.items():
                         if doc_status.metadata and doc_status.metadata.get('category_id') == category_id:
                             # 更新文档metadata，移除分类
@@ -801,7 +829,7 @@ curl -X DELETE "http://localhost:8020/categories/cat_123456" \\
                 # 批量保存更新
                 if docs_to_update:
                     docs_dict = {doc_id: doc_status_to_dict(doc_id, doc_status) for doc_id, doc_status in docs_to_update.items()}
-                    await rag.doc_status.upsert(docs_dict)
+                    await doc_status_storage.upsert(docs_dict)
             
             # 从存储中删除分类
             # 优先使用PostgreSQL存储
@@ -891,6 +919,8 @@ curl -X POST "http://localhost:8020/categories/assign" \\
             if not category_data:
                 raise HTTPException(status_code=404, detail="分类不存在")
             
+            doc_status_storage = await get_doc_status_storage(rag, workspace)
+            
             # 更新文档的metadata
             affected_count = 0
             statuses = [
@@ -903,7 +933,7 @@ curl -X POST "http://localhost:8020/categories/assign" \\
             
             docs_to_update = {}
             for status in statuses:
-                docs = await rag.get_docs_by_status(status)
+                docs = await doc_status_storage.get_docs_by_status(status)
                 for doc_id in assign_request.doc_ids:
                     if doc_id in docs:
                         doc_status = docs[doc_id]
@@ -917,7 +947,7 @@ curl -X POST "http://localhost:8020/categories/assign" \\
             if docs_to_update:
                 # 需要将DocProcessingStatus转换为字典格式
                 docs_dict = {doc_id: doc_status_to_dict(doc_id, doc_status) for doc_id, doc_status in docs_to_update.items()}
-                await rag.doc_status.upsert(docs_dict)
+                await doc_status_storage.upsert(docs_dict)
             
             if affected_count == 0:
                 raise HTTPException(
@@ -967,6 +997,7 @@ curl -X POST "http://localhost:8020/categories/remove" \\
         """移除文档的分类"""
         try:
             workspace = get_workspace_from_request(request)
+            doc_status_storage = await get_doc_status_storage(rag, workspace)
             
             # 更新文档的metadata
             affected_count = 0
@@ -980,7 +1011,7 @@ curl -X POST "http://localhost:8020/categories/remove" \\
             
             docs_to_update = {}
             for status in statuses:
-                docs = await rag.get_docs_by_status(status)
+                docs = await doc_status_storage.get_docs_by_status(status)
                 for doc_id in remove_request.doc_ids:
                     if doc_id in docs:
                         doc_status = docs[doc_id]
@@ -993,7 +1024,7 @@ curl -X POST "http://localhost:8020/categories/remove" \\
             if docs_to_update:
                 # 需要将DocProcessingStatus转换为字典格式
                 docs_dict = {doc_id: doc_status_to_dict(doc_id, doc_status) for doc_id, doc_status in docs_to_update.items()}
-                await rag.doc_status.upsert(docs_dict)
+                await doc_status_storage.upsert(docs_dict)
             
             return CategoryOperationResponse(
                 status="success",
