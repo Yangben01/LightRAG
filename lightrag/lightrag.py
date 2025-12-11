@@ -1251,6 +1251,7 @@ class LightRAG:
         ids: list[str] | None = None,
         file_paths: str | list[str] | None = None,
         track_id: str | None = None,
+        category_id: str | None = None,
     ) -> str:
         """
         Pipeline for Processing Documents
@@ -1265,6 +1266,7 @@ class LightRAG:
             ids: list of unique document IDs, if not provided, MD5 hash IDs will be generated
             file_paths: list of file paths corresponding to each document, used for citation
             track_id: tracking ID for monitoring processing status, if not provided, will be generated with "enqueue" prefix
+            category_id: Optional category ID to associate with the document. If provided, will be stored in document metadata.
 
         Returns:
             str: tracking ID for monitoring processing status
@@ -1331,6 +1333,7 @@ class LightRAG:
             }
 
         # 2. Generate document initial status (without content)
+        # Initialize metadata with category_id if provided
         new_docs: dict[str, Any] = {
             id_: {
                 "status": DocStatus.PENDING,
@@ -1342,6 +1345,7 @@ class LightRAG:
                     "file_path"
                 ],  # Store file path in document status
                 "track_id": track_id,  # Store track_id in document status
+                "metadata": {"category_id": category_id} if category_id else None,  # Store category_id in metadata if provided
             }
             for id_, content_data in contents.items()
         }

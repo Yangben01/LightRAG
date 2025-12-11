@@ -18,6 +18,7 @@ from fastapi import (
     BackgroundTasks,
     Depends,
     File,
+    Form,
     HTTPException,
     Request,
     UploadFile,
@@ -1445,7 +1446,7 @@ def _extract_xlsx(file_bytes: bytes) -> str:
 
 
 async def pipeline_enqueue_file(
-    rag: LightRAG, file_path: Path, track_id: str = None
+    rag: LightRAG, file_path: Path, track_id: str = None, category_id: Optional[str] = None
 ) -> tuple[bool, str]:
     """Add a file to the queue for processing
 
@@ -1453,6 +1454,7 @@ async def pipeline_enqueue_file(
         rag: LightRAG instance
         file_path: Path to the saved file
         track_id: Optional tracking ID, if not provided will be generated
+        category_id: Optional category ID to associate with the document
     Returns:
         tuple: (success: bool, track_id: str)
     """
@@ -1853,7 +1855,7 @@ async def pipeline_enqueue_file(
 
             try:
                 await rag.apipeline_enqueue_documents(
-                    content, file_paths=file_path.name, track_id=track_id
+                    content, file_paths=file_path.name, track_id=track_id, category_id=category_id
                 )
 
                 logger.info(
@@ -1937,17 +1939,18 @@ async def pipeline_enqueue_file(
                 logger.error(f"Error deleting file {file_path}: {str(e)}")
 
 
-async def pipeline_index_file(rag: LightRAG, file_path: Path, track_id: str = None):
-    """Index a file with track_id
+async def pipeline_index_file(rag: LightRAG, file_path: Path, track_id: str = None, category_id: Optional[str] = None):
+    """Index a file with track_id and optional category_id
 
     Args:
         rag: LightRAG instance
         file_path: Path to the saved file
         track_id: Optional tracking ID
+        category_id: Optional category ID to associate with the document
     """
     try:
         success, returned_track_id = await pipeline_enqueue_file(
-            rag, file_path, track_id
+            rag, file_path, track_id, category_id
         )
         if success:
             await rag.apipeline_process_enqueue_documents()
@@ -2452,11 +2455,13 @@ def create_document_routes(
     @router.post(
         "/upload", response_model=InsertResponse, dependencies=[Depends(combined_auth)],
         summary="上传文档",
-        description="上传文件到输入目录并建立索引。",
+        description="上传文件到输入目录并建立索引。支持通过 category_id 参数关联分类。",
         response_description="上传操作的结果"
     )
     async def upload_to_input_dir(
-        background_tasks: BackgroundTasks, file: UploadFile = File(...)
+        background_tasks: BackgroundTasks, 
+        file: UploadFile = File(...),
+        category_id: Optional[str] = Form(None, description="分类ID，用于关联文档到指定分类")
     ):
         """
         上传文件到输入目录并建立索引。
@@ -2467,6 +2472,8 @@ def create_document_routes(
         参数:
             background_tasks: FastAPI后台任务用于异步处理
             file (UploadFile): 要上传的文件。它必须具有允许的扩展名。
+            category_id (str, optional): 分类ID，用于将文档关联到指定分类。
+                如果提供，文档的 metadata 中会包含 category_id 字段。
 
         返回:
             InsertResponse: 包含上传状态和消息的响应对象。
@@ -2474,6 +2481,15 @@ def create_document_routes(
 
         异常:
             HTTPException: 如果文件类型不受支持（400）或其他错误发生（500）。
+
+        示例:
+            ```bash
+            # 上传文档并关联分类
+            curl -X POST "http://localhost:9621/documents/upload" \\
+              -H "LIGHTRAG-WORKSPACE: my_workspace" \\
+              -F "file=@document.pdf" \\
+              -F "category_id=cat_123456"
+            ```
         """
         try:
             # Sanitize filename to prevent Path Traversal attacks
@@ -2513,7 +2529,8 @@ def create_document_routes(
             track_id = generate_track_id("upload")
 
             # Add to background tasks and get track_id
-            background_tasks.add_task(pipeline_index_file, rag, file_path, track_id)
+            # Pass category_id to pipeline_index_file if provided
+            background_tasks.add_task(pipeline_index_file, rag, file_path, track_id, category_id)
 
             return InsertResponse(
                 status="success",
