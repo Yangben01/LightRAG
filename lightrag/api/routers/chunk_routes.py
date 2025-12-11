@@ -528,6 +528,11 @@ curl -X GET "http://localhost:8020/documents/doc-xyz789/chunks" \\
         - chunks: chunk列表 (按顺序排序)
         """
         try:
+            # 从请求头中获取 workspace
+            workspace = request.headers.get("LIGHTRAG-WORKSPACE", "").strip()
+            if not workspace:
+                workspace = rag.text_chunks.workspace if hasattr(rag.text_chunks, "workspace") else None
+            
             doc_chunks = []
             storage_class_name = rag.text_chunks.__class__.__name__
             
@@ -558,14 +563,16 @@ curl -X GET "http://localhost:8020/documents/doc-xyz789/chunks" \\
                     doc_chunks.append(chunk_info)
                     
             elif storage_class_name == "PGKVStorage":
-                # PostgreSQL 存储：使用 WHERE 子句筛选
+                # PostgreSQL 存储：使用 WHERE 子句筛选，使用请求头中的 workspace
+                # 如果没有指定 workspace，使用默认值 "default"
+                query_workspace = workspace if workspace else (rag.text_chunks.workspace if hasattr(rag.text_chunks, "workspace") and rag.text_chunks.workspace else "default")
                 sql = """
                     SELECT id, content, tokens, chunk_order_index
                     FROM LIGHTRAG_DOC_CHUNKS
                     WHERE workspace = $1 AND full_doc_id = $2
                 """
                 results = await rag.text_chunks.db.query(
-                    sql, [rag.text_chunks.workspace, doc_id], multirows=True
+                    sql, [query_workspace, doc_id], multirows=True
                 )
                 if results:
                     for row in results:
@@ -610,7 +617,15 @@ curl -X GET "http://localhost:8020/documents/doc-xyz789/chunks" \\
 
             if not doc_chunks:
                 # 检查文档是否存在
-                doc_exists = await rag.full_docs.get_by_id(doc_id)
+                # 对于 PostgreSQL，需要确保使用正确的 workspace 查询
+                doc_status_storage_class_name = rag.full_docs.__class__.__name__
+                if doc_status_storage_class_name == "PGDocStatusStorage" and hasattr(rag.full_docs, "db"):
+                    query_workspace = workspace if workspace else (rag.full_docs.workspace if hasattr(rag.full_docs, "workspace") and rag.full_docs.workspace else "default")
+                    sql = "SELECT * FROM LIGHTRAG_DOC_STATUS WHERE workspace = $1 AND id = $2"
+                    result = await rag.full_docs.db.query(sql, [query_workspace, doc_id], multirows=False)
+                    doc_exists = result is not None and result != []
+                else:
+                    doc_exists = await rag.full_docs.get_by_id(doc_id)
                 if not doc_exists:
                     raise HTTPException(
                         status_code=404, detail=f"文档 '{doc_id}' 不存在"

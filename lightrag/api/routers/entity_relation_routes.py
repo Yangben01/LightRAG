@@ -481,6 +481,7 @@ curl -X GET "http://localhost:8020/entities/特斯拉" \\
         tags=["实体管理 / Entity Management"]
     )
     async def get_entity_detail(
+        request: Request,
         entity_name: str = Path(..., description="实体名称"),
     ):
         """
@@ -504,55 +505,80 @@ curl -X GET "http://localhost:8020/entities/特斯拉" \\
             - weight: 关系权重
         """
         try:
-            # 检查实体是否存在
-            exists = await rag.chunk_entity_relation_graph.has_node(entity_name)
-            if not exists:
-                raise HTTPException(status_code=404, detail=f"实体 '{entity_name}' 不存在")
+            # 从请求头中获取 workspace，对于 PostgreSQL 图存储需要临时设置 graph_name
+            workspace = get_workspace_from_request(request)
+            graph_storage = rag.chunk_entity_relation_graph
+            original_graph_name = None
+            original_workspace = None
+            
+            # 如果是 PostgreSQL 图存储，需要根据 workspace 临时设置 graph_name
+            if hasattr(graph_storage, "graph_name") and hasattr(graph_storage, "_get_workspace_graph_name"):
+                original_graph_name = graph_storage.graph_name
+                original_workspace = graph_storage.workspace
+                # 使用请求头中的 workspace，如果没有则使用存储实例的 workspace
+                if workspace:
+                    graph_storage.workspace = workspace
+                # 重新生成 graph_name（即使 workspace 为 None，也要使用当前 workspace 重新生成）
+                graph_storage.graph_name = graph_storage._get_workspace_graph_name()
+                logger.debug(f"查询实体详情 '{entity_name}'，workspace: {graph_storage.workspace}, graph_name: {graph_storage.graph_name}")
+            
+            try:
+                # 检查实体是否存在
+                exists = await graph_storage.has_node(entity_name)
+                if not exists:
+                    logger.warning(f"实体 '{entity_name}' 在 workspace '{graph_storage.workspace}' (graph_name: {graph_storage.graph_name}) 中不存在")
+                    raise HTTPException(status_code=404, detail=f"实体 '{entity_name}' 不存在")
 
-            # 获取实体节点信息
-            node = await rag.chunk_entity_relation_graph.get_node(entity_name)
-            if not node:
-                raise HTTPException(status_code=404, detail=f"实体 '{entity_name}' 不存在")
+                # 获取实体节点信息
+                node = await graph_storage.get_node(entity_name)
+                if not node:
+                    raise HTTPException(status_code=404, detail=f"实体 '{entity_name}' 不存在")
 
-            # 获取节点度数
-            degree = await rag.chunk_entity_relation_graph.node_degree(entity_name)
+                # 获取节点度数
+                degree = await graph_storage.node_degree(entity_name)
 
-            # 获取所有关系
-            edges = await rag.chunk_entity_relation_graph.get_node_edges(entity_name)
+                # 获取所有关系
+                edges = await graph_storage.get_node_edges(entity_name)
 
-            relations = []
-            if edges:
-                for src, tgt in edges:
-                    # 确定目标实体
-                    target_entity = tgt if src == entity_name else src
+                relations = []
+                if edges:
+                    for src, tgt in edges:
+                        # 确定目标实体
+                        target_entity = tgt if src == entity_name else src
 
-                    # 获取边的详细信息
-                    edge_data = await rag.chunk_entity_relation_graph.get_edge(
-                        src, tgt
-                    )
+                        # 获取边的详细信息
+                        edge_data = await graph_storage.get_edge(
+                            src, tgt
+                        )
 
-                    if edge_data:
-                        relation_info = {
-                            "source_entity": src,
-                            "target_entity": target_entity,
-                            "description": edge_data.get("description", ""),
-                            "keywords": edge_data.get("keywords", ""),
-                            "weight": edge_data.get("weight", 1.0),
-                            "source_id": edge_data.get("source_id", ""),
-                        }
-                        relations.append(relation_info)
+                        if edge_data:
+                            relation_info = {
+                                "source_entity": src,
+                                "target_entity": target_entity,
+                                "description": edge_data.get("description", ""),
+                                "keywords": edge_data.get("keywords", ""),
+                                "weight": edge_data.get("weight", 1.0),
+                                "source_id": edge_data.get("source_id", ""),
+                            }
+                            relations.append(relation_info)
 
-            # 组装返回数据
-            entity_data = dict(node)
-            entity_data["degree"] = degree
-            entity_data["entity_id"] = entity_name
+                # 组装返回数据
+                entity_data = dict(node)
+                entity_data["degree"] = degree
+                entity_data["entity_id"] = entity_name
 
-            return {
-                "status": "success",
-                "entity": entity_data,
-                "relations": relations,
-                "relations_count": len(relations),
-            }
+                return {
+                    "status": "success",
+                    "entity": entity_data,
+                    "relations": relations,
+                    "relations_count": len(relations),
+                }
+            finally:
+                # 恢复原始的 graph_name 和 workspace
+                if original_graph_name is not None:
+                    graph_storage.graph_name = original_graph_name
+                    if original_workspace is not None:
+                        graph_storage.workspace = original_workspace
 
         except HTTPException:
             raise
@@ -749,6 +775,7 @@ curl -X GET "http://localhost:8020/entities/特斯拉/relations" \\
         tags=["关系管理 / Relation Management"]
     )
     async def get_entity_relations(
+        request: Request,
         entity_name: str = Path(..., description="实体名称"),
     ):
         """
@@ -763,42 +790,67 @@ curl -X GET "http://localhost:8020/entities/特斯拉/relations" \\
         - relations: 关系列表
         """
         try:
-            # 检查实体是否存在
-            exists = await rag.chunk_entity_relation_graph.has_node(entity_name)
-            if not exists:
-                raise HTTPException(status_code=404, detail=f"实体 '{entity_name}' 不存在")
+            # 从请求头中获取 workspace，对于 PostgreSQL 图存储需要临时设置 graph_name
+            workspace = get_workspace_from_request(request)
+            graph_storage = rag.chunk_entity_relation_graph
+            original_graph_name = None
+            original_workspace = None
+            
+            # 如果是 PostgreSQL 图存储，需要根据 workspace 临时设置 graph_name
+            if hasattr(graph_storage, "graph_name") and hasattr(graph_storage, "_get_workspace_graph_name"):
+                original_graph_name = graph_storage.graph_name
+                original_workspace = graph_storage.workspace
+                # 使用请求头中的 workspace，如果没有则使用存储实例的 workspace
+                if workspace:
+                    graph_storage.workspace = workspace
+                # 重新生成 graph_name（即使 workspace 为 None，也要使用当前 workspace 重新生成）
+                graph_storage.graph_name = graph_storage._get_workspace_graph_name()
+                logger.debug(f"查询实体关系 '{entity_name}'，workspace: {graph_storage.workspace}, graph_name: {graph_storage.graph_name}")
+            
+            try:
+                # 检查实体是否存在
+                exists = await graph_storage.has_node(entity_name)
+                if not exists:
+                    logger.warning(f"实体 '{entity_name}' 在 workspace '{graph_storage.workspace}' (graph_name: {graph_storage.graph_name}) 中不存在")
+                    raise HTTPException(status_code=404, detail=f"实体 '{entity_name}' 不存在")
 
-            # 获取所有关系
-            edges = await rag.chunk_entity_relation_graph.get_node_edges(entity_name)
+                # 获取所有关系
+                edges = await graph_storage.get_node_edges(entity_name)
 
-            relations = []
-            if edges:
-                for src, tgt in edges:
-                    # 确定目标实体
-                    target_entity = tgt if src == entity_name else src
+                relations = []
+                if edges:
+                    for src, tgt in edges:
+                        # 确定目标实体
+                        target_entity = tgt if src == entity_name else src
 
-                    # 获取边的详细信息
-                    edge_data = await rag.chunk_entity_relation_graph.get_edge(
-                        src, tgt
-                    )
+                        # 获取边的详细信息
+                        edge_data = await graph_storage.get_edge(
+                            src, tgt
+                        )
 
-                    if edge_data:
-                        relation_info = {
-                            "source_entity": src,
-                            "target_entity": target_entity,
-                            "description": edge_data.get("description", ""),
-                            "keywords": edge_data.get("keywords", ""),
-                            "weight": edge_data.get("weight", 1.0),
-                            "source_id": edge_data.get("source_id", ""),
-                        }
-                        relations.append(relation_info)
+                        if edge_data:
+                            relation_info = {
+                                "source_entity": src,
+                                "target_entity": target_entity,
+                                "description": edge_data.get("description", ""),
+                                "keywords": edge_data.get("keywords", ""),
+                                "weight": edge_data.get("weight", 1.0),
+                                "source_id": edge_data.get("source_id", ""),
+                            }
+                            relations.append(relation_info)
 
-            return {
-                "status": "success",
-                "entity_name": entity_name,
-                "relations_count": len(relations),
-                "relations": relations,
-            }
+                return {
+                    "status": "success",
+                    "entity_name": entity_name,
+                    "relations_count": len(relations),
+                    "relations": relations,
+                }
+            finally:
+                # 恢复原始的 graph_name 和 workspace
+                if original_graph_name is not None:
+                    graph_storage.graph_name = original_graph_name
+                    if original_workspace is not None:
+                        graph_storage.workspace = original_workspace
 
         except HTTPException:
             raise

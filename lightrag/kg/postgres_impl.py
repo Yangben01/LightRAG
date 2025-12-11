@@ -1777,13 +1777,14 @@ class PGKVStorage(BaseKVStorage):
             if self.db is None:
                 self.db = await ClientManager.get_client()
 
-            # Implement workspace priority: PostgreSQLDB.workspace > self.workspace > "default"
-            if self.db.workspace:
-                # Use PostgreSQLDB's workspace (highest priority)
-                self.workspace = self.db.workspace
-            elif hasattr(self, "workspace") and self.workspace:
-                # Use storage class's workspace (medium priority)
+            # Implement workspace priority: self.workspace (from LightRAG instance) > PostgreSQLDB.workspace > "default"
+            # Priority changed: self.workspace should take precedence for multi-tenant support
+            if hasattr(self, "workspace") and self.workspace:
+                # Use storage class's workspace (highest priority - from LightRAG instance)
                 pass
+            elif self.db.workspace:
+                # Use PostgreSQLDB's workspace (medium priority - from config/env)
+                self.workspace = self.db.workspace
             else:
                 # Use "default" for compatibility (lowest priority)
                 self.workspace = "default"
