@@ -3825,7 +3825,7 @@ curl -X POST "http://localhost:9521/documents/list" \\
         temp_storage = None
         if workspace != rag.workspace:
             # 创建新的 DocStatusStorage 实例以支持不同的 workspace
-            from lightrag.base import NameSpace
+            from lightrag.namespace import NameSpace
             from dataclasses import asdict
             # 获取 global_config（与初始化时相同的方式）
             global_config = asdict(rag)
