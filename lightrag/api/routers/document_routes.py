@@ -2051,6 +2051,7 @@ async def pipeline_index_texts(
     texts: List[str],
     file_sources: List[str] = None,
     track_id: str = None,
+    workspace: str = None,
 ):
     """Index a list of texts with track_id
 
@@ -2059,19 +2060,70 @@ async def pipeline_index_texts(
         texts: The texts to index
         file_sources: Sources of the texts
         track_id: Optional tracking ID
+        workspace: Optional workspace to override rag.workspace
     """
     if not texts:
         return
-    if file_sources is not None:
-        if len(file_sources) != 0 and len(file_sources) != len(texts):
-            [
-                file_sources.append("unknown_source")
-                for _ in range(len(file_sources), len(texts))
-            ]
-    await rag.apipeline_enqueue_documents(
-        input=texts, file_paths=file_sources, track_id=track_id
-    )
-    await rag.apipeline_process_enqueue_documents()
+    
+    # 如果指定了 workspace，在整个处理过程中使用它
+    original_workspace = None
+    if workspace and workspace != rag.workspace:
+        from lightrag.kg.shared_storage import initialize_pipeline_status
+        
+        # 初始化新 workspace 的 pipeline_status
+        await initialize_pipeline_status(workspace=workspace)
+        
+        # 临时修改 rag 及其存储实例的 workspace
+        original_workspace = rag.workspace
+        try:
+            # 修改 rag 和所有存储实例的 workspace
+            rag.workspace = workspace
+            for storage in [rag.doc_status, rag.full_docs, rag.text_chunks, rag.chunks_vdb,
+                           rag.entities_vdb, rag.relationships_vdb, rag.full_entities, 
+                           rag.full_relations, rag.entity_chunks, rag.relation_chunks,
+                           rag.chunk_entity_relation_graph, rag.llm_response_cache]:
+                if hasattr(storage, 'workspace'):
+                    storage.workspace = workspace
+            
+            # Ensure pipeline status is initialized for the new workspace
+            await initialize_pipeline_status(workspace=workspace)
+            
+            if file_sources is not None:
+                if len(file_sources) != 0 and len(file_sources) != len(texts):
+                    [
+                        file_sources.append("unknown_source")
+                        for _ in range(len(file_sources), len(texts))
+                    ]
+            await rag.apipeline_enqueue_documents(
+                input=texts, file_paths=file_sources, track_id=track_id
+            )
+            await rag.apipeline_process_enqueue_documents()
+
+        except Exception as e:
+            logger.error(f"Error indexing texts: {str(e)}")
+            logger.error(traceback.format_exc())
+        finally:
+            # 恢复原始 workspace
+            if original_workspace is not None:
+                rag.workspace = original_workspace
+                for storage in [rag.doc_status, rag.full_docs, rag.text_chunks, rag.chunks_vdb,
+                               rag.entities_vdb, rag.relationships_vdb, rag.full_entities, 
+                               rag.full_relations, rag.entity_chunks, rag.relation_chunks,
+                               rag.chunk_entity_relation_graph, rag.llm_response_cache]:
+                    if hasattr(storage, 'workspace'):
+                        storage.workspace = original_workspace
+    else:
+        # 如果 workspace 未指定或与 rag.workspace 相同，使用原有逻辑
+        if file_sources is not None:
+            if len(file_sources) != 0 and len(file_sources) != len(texts):
+                [
+                    file_sources.append("unknown_source")
+                    for _ in range(len(file_sources), len(texts))
+                ]
+        await rag.apipeline_enqueue_documents(
+            input=texts, file_paths=file_sources, track_id=track_id
+        )
+        await rag.apipeline_process_enqueue_documents()
 
 
 async def run_scanning_process(
@@ -2831,7 +2883,9 @@ def create_document_routes(
         response_description="网页抓取操作的结果"
     )
     async def crawl_web_page(
-        request: CrawlWebPageRequest, background_tasks: BackgroundTasks
+        http_request: Request,
+        request: CrawlWebPageRequest, 
+        background_tasks: BackgroundTasks
     ):
         """
         抓取网页内容并建立索引。
@@ -2850,6 +2904,9 @@ def create_document_routes(
             HTTPException: 如果URL无效、无法访问网页（400）或其他错误发生（500）。
         """
         try:
+            # 从请求头中获取 workspace
+            request_workspace = get_workspace_from_request(http_request)
+            
             # 使用httpx异步抓取网页
             try:
                 import httpx
@@ -2914,7 +2971,22 @@ def create_document_routes(
                     for link in links:
                         if link not in crawled_urls:
                             # 检查是否已存在于doc_status存储中
-                            existing_doc_data = await rag.doc_status.get_doc_by_file_path(link)
+                            # 需要使用正确的 workspace 来检查
+                            if request_workspace and request_workspace != rag.workspace:
+                                # 创建临时的 doc_status 存储实例来检查文档是否存在
+                                from lightrag.namespace import NameSpace
+                                from dataclasses import asdict
+                                global_config = asdict(rag)
+                                temp_doc_status = rag.doc_status_storage_cls(
+                                    namespace=NameSpace.DOC_STATUS,
+                                    workspace=request_workspace,
+                                    global_config=global_config,
+                                    embedding_func=None,
+                                )
+                                await temp_doc_status.initialize()
+                                existing_doc_data = await temp_doc_status.get_doc_by_file_path(link)
+                            else:
+                                existing_doc_data = await rag.doc_status.get_doc_by_file_path(link)
                             if not existing_doc_data:
                                 links_to_crawl.append(link)
                     
@@ -2958,7 +3030,21 @@ def create_document_routes(
                 # 检查合并后的内容是否已存在
                 sanitized_text = sanitize_text_for_encoding(merged_text)
                 content_doc_id = compute_mdhash_id(sanitized_text, prefix="doc-")
-                existing_doc = await rag.doc_status.get_by_id(content_doc_id)
+                # 需要使用正确的 workspace 来检查
+                if request_workspace and request_workspace != rag.workspace:
+                    from lightrag.namespace import NameSpace
+                    from dataclasses import asdict
+                    global_config = asdict(rag)
+                    temp_doc_status = rag.doc_status_storage_cls(
+                        namespace=NameSpace.DOC_STATUS,
+                        workspace=request_workspace,
+                        global_config=global_config,
+                        embedding_func=None,
+                    )
+                    await temp_doc_status.initialize()
+                    existing_doc = await temp_doc_status.get_by_id(content_doc_id)
+                else:
+                    existing_doc = await rag.doc_status.get_by_id(content_doc_id)
                 
                 if existing_doc:
                     status = existing_doc.get("status", "unknown")
@@ -2982,6 +3068,7 @@ def create_document_routes(
                     [merged_text],
                     file_sources=[merged_file_path],
                     track_id=track_id,
+                    workspace=request_workspace,
                 )
                 
                 message = f"成功抓取并合并 {len(all_texts)} 个页面为一个文档。将在后台继续处理。"
@@ -2994,7 +3081,21 @@ def create_document_routes(
                 for text, source in zip(all_texts, all_sources):
                     sanitized_text = sanitize_text_for_encoding(text)
                     content_doc_id = compute_mdhash_id(sanitized_text, prefix="doc-")
-                    existing_doc = await rag.doc_status.get_by_id(content_doc_id)
+                    # 需要使用正确的 workspace 来检查
+                    if request_workspace and request_workspace != rag.workspace:
+                        from lightrag.namespace import NameSpace
+                        from dataclasses import asdict
+                        global_config = asdict(rag)
+                        temp_doc_status = rag.doc_status_storage_cls(
+                            namespace=NameSpace.DOC_STATUS,
+                            workspace=request_workspace,
+                            global_config=global_config,
+                            embedding_func=None,
+                        )
+                        await temp_doc_status.initialize()
+                        existing_doc = await temp_doc_status.get_by_id(content_doc_id)
+                    else:
+                        existing_doc = await rag.doc_status.get_by_id(content_doc_id)
                     if not existing_doc:
                         texts_to_index.append(text)
                         sources_to_index.append(source)
@@ -3017,6 +3118,7 @@ def create_document_routes(
                     texts_to_index,
                     file_sources=sources_to_index,
                     track_id=track_id,
+                    workspace=request_workspace,
                 )
 
                 total_crawled = len(texts_to_index)
