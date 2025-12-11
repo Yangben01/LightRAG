@@ -2139,6 +2139,7 @@ async def background_delete_documents(
     doc_ids: List[str],
     delete_file: bool = False,
     delete_llm_cache: bool = False,
+    workspace: str | None = None,
 ):
     """Background task to delete multiple documents"""
     from lightrag.kg.shared_storage import (
@@ -2146,44 +2147,76 @@ async def background_delete_documents(
         get_namespace_lock,
     )
 
-    pipeline_status = await get_namespace_data(
-        "pipeline_status", workspace=rag.workspace
-    )
-    pipeline_status_lock = get_namespace_lock(
-        "pipeline_status", workspace=rag.workspace
-    )
-
-    total_docs = len(doc_ids)
-    successful_deletions = []
-    failed_deletions = []
-
-    # Double-check pipeline status before proceeding
-    async with pipeline_status_lock:
-        if pipeline_status.get("busy", False):
-            logger.warning("Error: Unexpected pipeline busy state, aborting deletion.")
-            return  # Abort deletion operation
-
-        # Set pipeline status to busy for deletion
-        pipeline_status.update(
-            {
-                "busy": True,
-                # Job name can not be changed, it's verified in adelete_by_doc_id()
-                "job_name": f"Deleting {total_docs} Documents",
-                "job_start": datetime.now().isoformat(),
-                "docs": total_docs,
-                "batchs": total_docs,
-                "cur_batch": 0,
-                "latest_message": "Starting document deletion process",
-            }
-        )
-        # Use slice assignment to clear the list in place
-        pipeline_status["history_messages"][:] = ["Starting document deletion process"]
-        if delete_llm_cache:
-            pipeline_status["history_messages"].append(
-                "LLM cache cleanup requested for this deletion job"
-            )
-
+    # 使用传入的 workspace，如果没有则使用 rag 实例的 workspace
+    query_workspace = workspace if workspace else (rag.workspace if hasattr(rag, "workspace") else "default")
+    
+    # 临时设置所有存储的 workspace
+    original_workspace = rag.workspace if hasattr(rag, "workspace") else None
+    original_storage_workspaces = {}
+    
+    # 保存所有存储的原始 workspace
+    storage_attrs = [
+        "doc_status", "text_chunks", "full_docs", "full_entities", 
+        "full_relations", "entity_chunks", "relation_chunks",
+        "chunk_entity_relation_graph", "entities_vdb", "relationships_vdb"
+    ]
+    
+    if workspace:
+        # 临时设置 rag.workspace
+        rag.workspace = workspace
+        
+        # 临时设置所有存储的 workspace
+        for attr_name in storage_attrs:
+            if hasattr(rag, attr_name):
+                storage = getattr(rag, attr_name)
+                if hasattr(storage, "workspace"):
+                    original_storage_workspaces[attr_name] = storage.workspace
+                    storage.workspace = workspace
+                    # 对于 PostgreSQL 图存储，需要重新生成 graph_name
+                    if hasattr(storage, "graph_name") and hasattr(storage, "_get_workspace_graph_name"):
+                        storage.graph_name = storage._get_workspace_graph_name()
+    
+    pipeline_status = None
+    pipeline_status_lock = None
+    
     try:
+        pipeline_status = await get_namespace_data(
+            "pipeline_status", workspace=query_workspace
+        )
+        pipeline_status_lock = get_namespace_lock(
+            "pipeline_status", workspace=query_workspace
+        )
+
+        total_docs = len(doc_ids)
+        successful_deletions = []
+        failed_deletions = []
+
+        # Double-check pipeline status before proceeding
+        async with pipeline_status_lock:
+            if pipeline_status.get("busy", False):
+                logger.warning("Error: Unexpected pipeline busy state, aborting deletion.")
+                return  # Abort deletion operation
+
+            # Set pipeline status to busy for deletion
+            pipeline_status.update(
+                {
+                    "busy": True,
+                    # Job name can not be changed, it's verified in adelete_by_doc_id()
+                    "job_name": f"Deleting {total_docs} Documents",
+                    "job_start": datetime.now().isoformat(),
+                    "docs": total_docs,
+                    "batchs": total_docs,
+                    "cur_batch": 0,
+                    "latest_message": "Starting document deletion process",
+                }
+            )
+            # Use slice assignment to clear the list in place
+            pipeline_status["history_messages"][:] = ["Starting document deletion process"]
+            if delete_llm_cache:
+                pipeline_status["history_messages"].append(
+                    "LLM cache cleanup requested for this deletion job"
+                )
+
         # Loop through each document ID and delete them one by one
         for i, doc_id in enumerate(doc_ids, 1):
             # Check for cancellation at the start of each document deletion
@@ -2358,19 +2391,35 @@ async def background_delete_documents(
         async with pipeline_status_lock:
             pipeline_status["history_messages"].append(error_msg)
     finally:
+        # 恢复原始的 workspace
+        if workspace and original_workspace is not None:
+            rag.workspace = original_workspace
+            # 恢复所有存储的原始 workspace
+            for attr_name, original_ws in original_storage_workspaces.items():
+                if hasattr(rag, attr_name):
+                    storage = getattr(rag, attr_name)
+                    if hasattr(storage, "workspace"):
+                        storage.workspace = original_ws
+                        # 对于 PostgreSQL 图存储，需要重新生成 graph_name
+                        if hasattr(storage, "graph_name") and hasattr(storage, "_get_workspace_graph_name"):
+                            storage.graph_name = storage._get_workspace_graph_name()
+        
         # Final summary and check for pending requests
-        async with pipeline_status_lock:
-            pipeline_status["busy"] = False
-            pipeline_status["pending_requests"] = False  # Reset pending requests flag
-            pipeline_status["cancellation_requested"] = (
-                False  # Always reset cancellation flag
-            )
-            completion_msg = f"Deletion completed: {len(successful_deletions)} successful, {len(failed_deletions)} failed"
-            pipeline_status["latest_message"] = completion_msg
-            pipeline_status["history_messages"].append(completion_msg)
+        if pipeline_status_lock is not None and pipeline_status is not None:
+            async with pipeline_status_lock:
+                pipeline_status["busy"] = False
+                pipeline_status["pending_requests"] = False  # Reset pending requests flag
+                pipeline_status["cancellation_requested"] = (
+                    False  # Always reset cancellation flag
+                )
+                completion_msg = f"Deletion completed: {len(successful_deletions)} successful, {len(failed_deletions)} failed"
+                pipeline_status["latest_message"] = completion_msg
+                pipeline_status["history_messages"].append(completion_msg)
 
-            # Check if there are pending document indexing requests
-            has_pending_request = pipeline_status.get("request_pending", False)
+                # Check if there are pending document indexing requests
+                has_pending_request = pipeline_status.get("request_pending", False)
+        else:
+            has_pending_request = False
 
         # If there are pending requests, start document processing pipeline
         if has_pending_request:
@@ -3413,6 +3462,7 @@ def create_document_routes(
         summary="Delete a document and all its associated data by its ID.",
     )
     async def delete_document(
+        request: Request,
         delete_request: DeleteDocRequest,
         background_tasks: BackgroundTasks,
     ) -> DeleteDocByIdResponse:
@@ -3442,16 +3492,23 @@ def create_document_routes(
         doc_ids = delete_request.doc_ids
 
         try:
+            # 从请求头中获取 workspace
+            workspace = request.headers.get("LIGHTRAG-WORKSPACE", "").strip()
+            if not workspace:
+                workspace = rag.workspace if hasattr(rag, "workspace") else None
+            
             from lightrag.kg.shared_storage import (
                 get_namespace_data,
                 get_namespace_lock,
             )
 
+            # 使用请求头中的 workspace，如果没有则使用 rag 实例的 workspace
+            query_workspace = workspace if workspace else (rag.workspace if hasattr(rag, "workspace") else "default")
             pipeline_status = await get_namespace_data(
-                "pipeline_status", workspace=rag.workspace
+                "pipeline_status", workspace=query_workspace
             )
             pipeline_status_lock = get_namespace_lock(
-                "pipeline_status", workspace=rag.workspace
+                "pipeline_status", workspace=query_workspace
             )
 
             # Check if pipeline is busy with proper lock
@@ -3463,7 +3520,7 @@ def create_document_routes(
                         doc_id=", ".join(doc_ids),
                     )
 
-            # Add deletion task to background tasks
+            # Add deletion task to background tasks with workspace
             background_tasks.add_task(
                 background_delete_documents,
                 rag,
@@ -3471,6 +3528,7 @@ def create_document_routes(
                 doc_ids,
                 delete_request.delete_file,
                 delete_request.delete_llm_cache,
+                workspace,  # 传递 workspace 参数
             )
 
             return DeleteDocByIdResponse(

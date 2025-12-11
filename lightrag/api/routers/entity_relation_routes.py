@@ -505,28 +505,32 @@ curl -X GET "http://localhost:8020/entities/特斯拉" \\
             - weight: 关系权重
         """
         try:
-            # 从请求头中获取 workspace，对于 PostgreSQL 图存储需要临时设置 graph_name
+            # 从请求头中获取 workspace
             workspace = get_workspace_from_request(request)
             graph_storage = rag.chunk_entity_relation_graph
             original_graph_name = None
             original_workspace = None
             
-            # 如果是 PostgreSQL 图存储，需要根据 workspace 临时设置 graph_name
-            if hasattr(graph_storage, "graph_name") and hasattr(graph_storage, "_get_workspace_graph_name"):
-                original_graph_name = graph_storage.graph_name
+            # 临时设置 workspace（适用于所有图存储类型）
+            if workspace:
                 original_workspace = graph_storage.workspace
-                # 使用请求头中的 workspace，如果没有则使用存储实例的 workspace
-                if workspace:
-                    graph_storage.workspace = workspace
-                # 重新生成 graph_name（即使 workspace 为 None，也要使用当前 workspace 重新生成）
-                graph_storage.graph_name = graph_storage._get_workspace_graph_name()
-                logger.debug(f"查询实体详情 '{entity_name}'，workspace: {graph_storage.workspace}, graph_name: {graph_storage.graph_name}")
+                graph_storage.workspace = workspace
+                
+                # 如果是 PostgreSQL 图存储，需要根据 workspace 重新生成 graph_name
+                if hasattr(graph_storage, "graph_name") and hasattr(graph_storage, "_get_workspace_graph_name"):
+                    original_graph_name = graph_storage.graph_name
+                    graph_storage.graph_name = graph_storage._get_workspace_graph_name()
+                    logger.debug(f"查询实体详情 '{entity_name}'，workspace: {graph_storage.workspace}, graph_name: {graph_storage.graph_name}")
+                else:
+                    logger.debug(f"查询实体详情 '{entity_name}'，workspace: {graph_storage.workspace}")
             
             try:
                 # 检查实体是否存在
                 exists = await graph_storage.has_node(entity_name)
                 if not exists:
-                    logger.warning(f"实体 '{entity_name}' 在 workspace '{graph_storage.workspace}' (graph_name: {graph_storage.graph_name}) 中不存在")
+                    # 只有 PostgreSQL 图存储有 graph_name 属性
+                    graph_name_info = f" (graph_name: {graph_storage.graph_name})" if hasattr(graph_storage, "graph_name") else ""
+                    logger.warning(f"实体 '{entity_name}' 在 workspace '{graph_storage.workspace}'{graph_name_info} 中不存在")
                     raise HTTPException(status_code=404, detail=f"实体 '{entity_name}' 不存在")
 
                 # 获取实体节点信息
@@ -790,28 +794,32 @@ curl -X GET "http://localhost:8020/entities/特斯拉/relations" \\
         - relations: 关系列表
         """
         try:
-            # 从请求头中获取 workspace，对于 PostgreSQL 图存储需要临时设置 graph_name
+            # 从请求头中获取 workspace
             workspace = get_workspace_from_request(request)
             graph_storage = rag.chunk_entity_relation_graph
             original_graph_name = None
             original_workspace = None
             
-            # 如果是 PostgreSQL 图存储，需要根据 workspace 临时设置 graph_name
-            if hasattr(graph_storage, "graph_name") and hasattr(graph_storage, "_get_workspace_graph_name"):
-                original_graph_name = graph_storage.graph_name
+            # 临时设置 workspace（适用于所有图存储类型）
+            if workspace:
                 original_workspace = graph_storage.workspace
-                # 使用请求头中的 workspace，如果没有则使用存储实例的 workspace
-                if workspace:
-                    graph_storage.workspace = workspace
-                # 重新生成 graph_name（即使 workspace 为 None，也要使用当前 workspace 重新生成）
-                graph_storage.graph_name = graph_storage._get_workspace_graph_name()
-                logger.debug(f"查询实体关系 '{entity_name}'，workspace: {graph_storage.workspace}, graph_name: {graph_storage.graph_name}")
+                graph_storage.workspace = workspace
+                
+                # 如果是 PostgreSQL 图存储，需要根据 workspace 重新生成 graph_name
+                if hasattr(graph_storage, "graph_name") and hasattr(graph_storage, "_get_workspace_graph_name"):
+                    original_graph_name = graph_storage.graph_name
+                    graph_storage.graph_name = graph_storage._get_workspace_graph_name()
+                    logger.debug(f"查询实体关系 '{entity_name}'，workspace: {graph_storage.workspace}, graph_name: {graph_storage.graph_name}")
+                else:
+                    logger.debug(f"查询实体关系 '{entity_name}'，workspace: {graph_storage.workspace}")
             
             try:
                 # 检查实体是否存在
                 exists = await graph_storage.has_node(entity_name)
                 if not exists:
-                    logger.warning(f"实体 '{entity_name}' 在 workspace '{graph_storage.workspace}' (graph_name: {graph_storage.graph_name}) 中不存在")
+                    # 只有 PostgreSQL 图存储有 graph_name 属性
+                    graph_name_info = f" (graph_name: {graph_storage.graph_name})" if hasattr(graph_storage, "graph_name") else ""
+                    logger.warning(f"实体 '{entity_name}' 在 workspace '{graph_storage.workspace}'{graph_name_info} 中不存在")
                     raise HTTPException(status_code=404, detail=f"实体 '{entity_name}' 不存在")
 
                 # 获取所有关系
