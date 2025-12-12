@@ -470,6 +470,20 @@ curl -H "LIGHTRAG-WORKSPACE: tenant_a" http://localhost:9621/entities/list
     async def validation_exception_handler(
         request: Request, exc: RequestValidationError
     ):
+        def sanitize_error_value(value):
+            """Convert bytes and other non-serializable types to strings"""
+            if isinstance(value, bytes):
+                try:
+                    return value.decode('utf-8')
+                except UnicodeDecodeError:
+                    return value.decode('utf-8', errors='replace')
+            elif isinstance(value, (dict, list)):
+                if isinstance(value, dict):
+                    return {k: sanitize_error_value(v) for k, v in value.items()}
+                else:
+                    return [sanitize_error_value(item) for item in value]
+            return value
+        
         # Check if this is a request to /query/data endpoint
         if request.url.path.endswith("/query/data"):
             # Extract error details
@@ -492,7 +506,14 @@ curl -H "LIGHTRAG-WORKSPACE: tenant_a" http://localhost:9621/entities/list
             )
         else:
             # For other endpoints, return the default FastAPI validation error
-            return JSONResponse(status_code=422, content={"detail": exc.errors()})
+            # Sanitize errors to ensure all values are JSON serializable
+            sanitized_errors = []
+            for error in exc.errors():
+                sanitized_error = {}
+                for key, value in error.items():
+                    sanitized_error[key] = sanitize_error_value(value)
+                sanitized_errors.append(sanitized_error)
+            return JSONResponse(status_code=422, content={"detail": sanitized_errors})
 
     def get_cors_origins():
         """Get allowed origins from global_args
